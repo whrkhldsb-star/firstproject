@@ -126,4 +126,48 @@ describe("FileUploadDropzone", () => {
     expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 
+  it("uses a controlled upload directory when SPA navigation changes the current folder", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ relativePath: "media/videos/clip.mp4", size: 4 }),
+    } as Response);
+
+    const { rerender } = render(
+      <FileUploadDropzone
+        nodes={[localNode]}
+        initialNodeId="node_local"
+        uploadDir="docs"
+        title="上传"
+        description="上传文件"
+        submitLabel="选择文件"
+        pathLabel="上传目录路径"
+      />,
+    );
+
+    const pathInput = screen.getByLabelText("上传目录路径");
+    expect(pathInput).toHaveValue("docs");
+
+    rerender(
+      <FileUploadDropzone
+        nodes={[localNode]}
+        initialNodeId="node_local"
+        uploadDir="media/videos"
+        title="上传"
+        description="上传文件"
+        submitLabel="选择文件"
+        pathLabel="上传目录路径"
+      />,
+    );
+
+    expect(pathInput).toHaveValue("media/videos");
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [new File(["clip"], "clip.mp4")] },
+    });
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1));
+    const fetchMock = vi.mocked(globalThis.fetch);
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData;
+    expect(formData.get("relativePath")).toBe("media/videos/clip.mp4");
+  });
+
 });

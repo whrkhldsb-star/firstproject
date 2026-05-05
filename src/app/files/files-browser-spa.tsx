@@ -523,6 +523,7 @@ export function FilesBrowserSpa({
 							nodes={data.nodes}
 							initialNodeId={localNodes[0]?.id ?? data.nodes[0]?.id}
 							initialRelativeDir={data.currentPath}
+							uploadDir={data.currentPath}
 							title={`上传到当前目录 ${currentPathLabel}`}
 							description="选择目标存储节点和上传目录路径。"
 							submitLabel="拖拽文件到这里，或点击选择本地文件"

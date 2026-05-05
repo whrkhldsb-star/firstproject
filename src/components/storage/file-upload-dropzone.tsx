@@ -22,6 +22,7 @@ function normalizeRelativePath(input: string) {
 export function FileUploadDropzone({
   nodes,
   initialNodeId,
+  uploadDir,
   initialRelativeDir = "",
   title,
   description,
@@ -32,6 +33,7 @@ export function FileUploadDropzone({
 }: {
   nodes: StorageUploadNode[];
   initialNodeId?: string;
+  uploadDir?: string;
   initialRelativeDir?: string;
   title: string;
   description: string;
@@ -44,6 +46,7 @@ export function FileUploadDropzone({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState(initialNodeId ?? nodes.find((node) => node.driver === "LOCAL")?.id ?? DEFAULT_NODE);
   const [relativeDir, setRelativeDir] = useState(initialRelativeDir);
+  const effectiveRelativeDir = uploadDir ?? relativeDir;
   const [dragActive, setDragActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<UploadMessage>(null);
@@ -66,7 +69,7 @@ export function FileUploadDropzone({
     const uploadItems = files.filter((file) => file.size >= 0);
     if (uploadItems.length === 0) return;
 
-    const baseDir = normalizeRelativePath(relativeDir);
+    const baseDir = normalizeRelativePath(effectiveRelativeDir);
     setSubmitting(true);
     setMessage(null);
     setQueue(uploadItems.map((file) => ({ name: file.name, status: "pending", message: "等待上传" })));
@@ -168,11 +171,11 @@ export function FileUploadDropzone({
           <span>{pathLabel}</span>
           <input
             aria-label={pathLabel}
-            value={relativeDir}
+            value={effectiveRelativeDir}
+            readOnly={uploadDir !== undefined || !allowNodeSelection}
             onChange={(event) => setRelativeDir(event.currentTarget.value)}
-            className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white"
+            className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white read-only:cursor-not-allowed read-only:opacity-80"
             placeholder="docs 或 media/videos"
-            readOnly={!allowNodeSelection}
           />
         </label>
       </div>
