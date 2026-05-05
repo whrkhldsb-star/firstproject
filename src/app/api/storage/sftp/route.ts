@@ -6,6 +6,9 @@ import { prisma } from "@/lib/db";
 import { assertStorageAccess } from "@/lib/storage/access-control";
 import { listRemoteDirectory } from "@/lib/ssh/client";
 import { normalizeRemotePath, toClientStorageError } from "@/lib/storage/remote-path";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:storage:sftp");
 
 export const dynamic = "force-dynamic";
 
@@ -107,7 +110,7 @@ const password = (connectionType === "PASSWORD" ? node.server?.password : undefi
       entries,
     });
   } catch (error) {
-    console.error("[storage:sftp] list failed", error);
+    logger.error("list remote directory failed", error);
     return NextResponse.json(toClientStorageError("连接远端节点失败，请检查节点配置或远端路径"), { status: 502 });
   }
 }

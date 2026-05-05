@@ -5,6 +5,9 @@ import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth/password";
 import { auditUserAction } from "@/lib/audit/service";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:users");
 
 export const dynamic = "force-dynamic";
 
@@ -111,7 +114,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, userId: user.id });
   } catch (error) {
-    console.error("[UserAPI] Create error:", error);
+    logger.error("create user failed", error);
     return NextResponse.json({ error: "创建用户失败" }, { status: 500 });
   }
 }
@@ -184,7 +187,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("[UserAPI] Update error:", error);
+    logger.error("update user failed", error);
     return NextResponse.json({ error: "更新用户失败" }, { status: 500 });
   }
 }

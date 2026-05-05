@@ -47,6 +47,7 @@ sudo DOMAIN=your.example.com APP_DIR=/opt/whrkhldsb deploy/install.sh
 
 | 脚本 | 用途 | 示例 |
 | --- | --- | --- |
+| `deploy/preflight.sh` | 部署前置检查；验证基础命令、环境变量占位符、Node 版本、端口占用、磁盘空间和运行目录，且不输出密钥值 | `APP_DIR=/opt/whrkhldsb ENV_FILE=/opt/whrkhldsb/.env.local deploy/preflight.sh` |
 | `deploy/upgrade.sh` | 升级部署；默认跳过 OS 包安装并复用 `install.sh` 的构建/迁移/重启流程 | `sudo APP_DIR=/opt/whrkhldsb DOMAIN=your.example.com deploy/upgrade.sh` |
 | `deploy/check.sh` | 检查环境变量、运行目录、systemd 服务和本地 `/login`，可选运行完整 npm 验证 | `APP_DIR=/opt/whrkhldsb CHECK_PUBLIC_URL=https://your.example.com deploy/check.sh` |
 | `deploy/backup.sh` | 备份数据库到 `BACKUP_DIR`，内部调用 `scripts/backup-db.sh` | `sudo APP_DIR=/opt/whrkhldsb BACKUP_DIR=/var/backups/whrkhldsb deploy/backup.sh` |
@@ -87,9 +88,11 @@ SQL
 - `DATABASE_URL`、`AUTH_SESSION_SECRET`、`ADMIN_INITIAL_PASSWORD` 仍为空或仍是占位值；
 - `AUTH_SESSION_SECRET` 少于 32 个字符；
 - `SSH_WS_ALLOWED_ORIGINS` 或公开标签仍是示例域名；
-- 生产安装中启用了 `ENABLE_DEMO_FALLBACK=true`。
+- 生产安装中启用了 `ENABLE_DEMO_FALLBACK=true` 或 `SEED_DEMO_DATA=true`。
 
-如果只是本地演示，请不要使用生产安装脚本直接带 demo fallback 上线。
+`deploy/install.sh` 在正式构建前会自动调用 `deploy/preflight.sh`，提前检查基础命令、环境文件、占位符、Node/npm、PostgreSQL 客户端、端口占用、磁盘空间和运行目录。该脚本只输出变量名与检查结果，不打印数据库连接串、密码、token 或私钥值。
+
+如果只是本地演示，请不要使用生产安装脚本直接带 demo fallback 或 demo seed 上线。
 
 ## 验证命令
 

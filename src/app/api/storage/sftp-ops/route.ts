@@ -11,6 +11,9 @@ import {
   writeRemoteFile,
 } from "@/lib/ssh/client";
 import { normalizeRemoteTargetPath, toClientStorageError } from "@/lib/storage/remote-path";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:storage:sftp-ops");
 
 export const dynamic = "force-dynamic";
 
@@ -202,7 +205,7 @@ const password = (connectionType === "PASSWORD" ? node.server?.password : undefi
         );
     }
   } catch (error) {
-    console.error("[storage:sftp-ops] operation failed", error);
+    logger.error("remote file operation failed", error, { action, nodeId });
     return NextResponse.json(toClientStorageError("远端文件操作失败，请检查节点配置、路径或权限"), { status: 502 });
   }
 }

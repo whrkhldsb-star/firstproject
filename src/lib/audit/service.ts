@@ -14,8 +14,8 @@ type WriteAuditLogInput = {
 };
 
 /**
- * Write an audit log entry. Fire-and-forget by design — callers should use
- * `writeAuditLog(...).catch(console.error)` to avoid blocking the main operation.
+ * Write an audit log entry. Fire-and-forget by design — callers should catch
+ * failures so audit writes do not block the main operation.
  */
 export async function writeAuditLog(input: WriteAuditLogInput): Promise<void> {
  await prisma.auditLog.create({

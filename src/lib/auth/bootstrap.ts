@@ -1,3 +1,7 @@
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("auth:bootstrap");
+
 export const ADMIN_BOOTSTRAP = {
  username: "admin",
  displayName: "Platform Admin",
@@ -12,7 +16,7 @@ export function getInitialAdminPassword(): string {
 		if (process.env.NODE_ENV === "production") {
 			throw new Error("ADMIN_INITIAL_PASSWORD must be set in production for initial admin seeding.");
 		}
-		console.warn("[bootstrap] WARNING: Using default admin password — set ADMIN_INITIAL_PASSWORD for production!");
+		logger.warn("using default development admin password; set ADMIN_INITIAL_PASSWORD for production");
 		return "changeme";
 	}
 	return envPassword;

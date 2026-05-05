@@ -8,6 +8,9 @@ import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { assertStorageAccess } from "@/lib/storage/access-control";
 import { normalizeRemoteTargetPath, toClientStorageError } from "@/lib/storage/remote-path";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:storage:sftp-download");
 
 export const dynamic = "force-dynamic";
 
@@ -234,7 +237,7 @@ const password = node.server?.password ?? undefined;
     // 确保出错时关闭连接
     client?.end();
 
-    console.error("[storage:sftp-download] read failed", error);
+    logger.error("read remote file for download failed", error, { nodeId });
     return NextResponse.json(toClientStorageError("获取远端文件失败，请检查文件是否存在或节点是否可连接"), { status: 502 });
   }
 }

@@ -1,6 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { createLogger } from "@/lib/logging";
 import type { RoleKey } from "./rbac";
+
+const logger = createLogger("auth:session");
 
 const SESSION_COOKIE_NAME = "whrkhldsb_session";
 const SESSION_ISSUER = "whrkhldsb";
@@ -29,7 +32,7 @@ function getSessionSecret() {
 		if (process.env.NODE_ENV === "production") {
 			throw new Error("AUTH_SESSION_SECRET must be set in production. Set it in .env.local");
 		}
-		console.warn("[auth] WARNING: Using default session secret — set AUTH_SESSION_SECRET for production!");
+		logger.warn("using default development session secret; set AUTH_SESSION_SECRET for production");
 		return "dev-only-session-secret-change-me";
 	}
 	return secret;

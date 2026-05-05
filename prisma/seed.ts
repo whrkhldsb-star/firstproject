@@ -1,7 +1,7 @@
 import { UserStatus } from "@prisma/client";
 
-import { ADMIN_BOOTSTRAP, getInitialAdminPassword } from "../src/lib/auth/bootstrap";
-import { prisma } from "../src/lib/db";
+import { ADMIN_BOOTSTRAP, getInitialAdminPassword } from "@/lib/auth/bootstrap";
+import { prisma } from "@/lib/db";
 import {
   ALL_PERMISSIONS,
   DEFAULT_ROLE_PERMISSIONS,
@@ -129,18 +129,100 @@ async function seedAdmin() {
   });
 }
 
-async function main() {
+function shouldSeedDemoData() {
+  return process.env.SEED_DEMO_DATA === "true" || process.env.DEMO_MODE === "true";
+}
+
+async function seedDemoData() {
+  const admin = await prisma.user.findUniqueOrThrow({ where: { username: ADMIN_BOOTSTRAP.username } });
+
+  const server = await prisma.server.upsert({
+    where: { id: "srv_demo_local" },
+    update: {
+      name: "demo-local-vps",
+      host: "127.0.0.1",
+      port: 22,
+      username: "root",
+      description: "仅用于本地演示；生产 seed 默认不会创建。",
+      tags: ["demo"],
+      enabled: false,
+      connectionType: "SSH_KEY",
+    },
+    create: {
+      id: "srv_demo_local",
+      name: "demo-local-vps",
+      host: "127.0.0.1",
+      port: 22,
+      username: "root",
+      description: "仅用于本地演示；生产 seed 默认不会创建。",
+      tags: ["demo"],
+      enabled: false,
+      connectionType: "SSH_KEY",
+    },
+  });
+
+  await prisma.storageNode.upsert({
+    where: { id: "node_demo_local" },
+    update: {
+      name: "本地演示云盘",
+      driver: "LOCAL",
+      isDefault: false,
+      basePath: "storage/demo",
+      serverId: null,
+    },
+    create: {
+      id: "node_demo_local",
+      name: "本地演示云盘",
+      driver: "LOCAL",
+      isDefault: false,
+      basePath: "storage/demo",
+      serverId: null,
+    },
+  });
+
+  await prisma.commandRequest.upsert({
+    where: { id: "cmd_demo_check_disk" },
+    update: {
+      title: "Demo: check disk usage",
+      command: "df -h",
+      reason: "本地演示命令；生产 seed 默认不会创建。",
+      initiatedByType: "USER",
+      requesterId: admin.id,
+    },
+    create: {
+      id: "cmd_demo_check_disk",
+      title: "Demo: check disk usage",
+      command: "df -h",
+      reason: "本地演示命令；生产 seed 默认不会创建。",
+      initiatedByType: "USER",
+      requesterId: admin.id,
+      targets: {
+        create: {
+          serverId: server.id,
+          status: "PENDING_APPROVAL",
+        },
+      },
+    },
+  });
+}
+
+export async function seedDatabase() {
   await seedPermissions();
   await seedRoles();
   await seedAdmin();
+  if (shouldSeedDemoData()) {
+    await seedDemoData();
+  }
 }
 
-main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (error) => {
-    console.error(error);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+if (process.env.NODE_ENV !== "test") {
+  seedDatabase()
+    .then(async () => {
+      await prisma.$disconnect();
+    })
+    .catch(async (error) => {
+      console.error(error);
+      await prisma.$disconnect();
+      process.exit(1);
+    });
+}

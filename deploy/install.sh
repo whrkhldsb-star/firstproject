@@ -220,6 +220,9 @@ main() {
   sync_source
   write_env_if_missing
   validate_env
+  if [ -x "${APP_DIR}/deploy/preflight.sh" ]; then
+    APP_DIR="${APP_DIR}" ENV_FILE="${ENV_FILE}" NEXT_HOST="${NEXT_HOST}" NEXT_PORT="${NEXT_PORT}" SSH_WS_PORT="${SSH_WS_PORT}" "${APP_DIR}/deploy/preflight.sh"
+  fi
   create_runtime_dirs
   build_app
   install_systemd

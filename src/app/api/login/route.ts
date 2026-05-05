@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 import { authenticateUser } from "@/lib/auth/service";
 import { createSessionToken, getSessionCookieName } from "@/lib/auth/session";
 import { auditUserAction, auditSystemAction } from "@/lib/audit/service";
+import { createLogger } from "@/lib/logging";
 import { checkRateLimit, getClientIp, LOGIN_RATE_LIMIT, LOGIN_SLOW_RATE_LIMIT } from "@/lib/rate-limit";
+
+const logger = createLogger("api:login");
 
 function safeNextPath(nextValue: FormDataEntryValue | null) {
 	const next = typeof nextValue === "string" ? nextValue : "/";
@@ -77,7 +80,7 @@ export async function POST(request: Request) {
 		});
 		return response;
 	} catch (e) {
-		console.error("LOGIN ERROR:", e);
+		logger.error("login failed with system error", e);
 		return redirectWithRelativeLocation("/login?error=system");
 	}
 }
