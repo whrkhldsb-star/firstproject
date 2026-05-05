@@ -1,0 +1,624 @@
+import { createHash } from "node:crypto";
+import { access, readFile, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { isDatabaseUnavailableError, prisma } from "@/lib/db";
+import { DEMO_STORAGE_OVERVIEW } from "@/lib/demo-data";
+
+import {
+  createFileEntrySchema,
+  createStorageNodeSchema,
+  fileEntryMutationSchema,
+  updateLocalFileContentSchema,
+  updateFileEntrySchema,
+  updateStorageNodeSchema,
+  type CreateFileEntryInput,
+  type CreateStorageNodeInput,
+  type FileEntryMutationInput,
+  type UpdateLocalFileContentInput,
+  type UpdateFileEntryInput,
+  type UpdateStorageNodeInput,
+} from "./schema";
+
+const EDITABLE_TEXT_MIME_PREFIXES = ["text/"];
+const EDITABLE_TEXT_MIME_TYPES = new Set([
+  "application/json",
+  "application/ld+json",
+  "application/xml",
+  "application/javascript",
+  "application/x-javascript",
+  "application/x-sh",
+  "image/svg+xml",
+]);
+
+const EDITABLE_TEXT_EXTENSIONS = new Set([
+  ".txt",
+  ".md",
+  ".json",
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".css",
+  ".scss",
+  ".html",
+  ".xml",
+  ".yml",
+  ".yaml",
+  ".csv",
+  ".log",
+  ".env",
+  ".py",
+  ".sh",
+  ".svg",
+]);
+
+const MAX_EDITABLE_FILE_SIZE_BYTES = 512 * 1024;
+
+function buildStorageConnectionSummary(input: {
+  driver: "LOCAL" | "SFTP";
+  basePath: string;
+  host?: string | null;
+  port?: number | null;
+  username?: string | null;
+  serverName?: string | null;
+}) {
+  if (input.driver === "LOCAL") {
+    return `本机存储：${input.basePath}`;
+  }
+
+  const remote = `${input.username ?? "root"}@${input.host ?? "unknown"}:${input.port ?? 22}`;
+  const serverHint = input.serverName ? `（绑定节点 ${input.serverName}）` : "";
+  return `SFTP 存储：${remote}${serverHint}，根目录 ${input.basePath}`;
+}
+
+function buildDirectAccessStrategy(input: {
+  driver: "LOCAL" | "SFTP";
+  nodeId: string;
+  host?: string | null;
+  port?: number | null;
+  relativePath?: string | null;
+}) {
+  if (input.driver === "LOCAL") {
+    return {
+      mode: "managed-download" as const,
+      description: "本机文件由管理端直接提供受控下载与预览。",
+      href: input.relativePath ? `/api/storage/local?path=${encodeURIComponent(input.relativePath)}` : null,
+    };
+  }
+
+  const host = input.host ?? "unknown";
+  const port = input.port ?? 22;
+  const params = new URLSearchParams({ nodeId: input.nodeId, path: input.relativePath ?? "" });
+  const href = `/api/storage/sftp-download?${params.toString()}`;
+
+  return {
+    mode: "managed-download" as const,
+    description: `远端文件经管理端 SFTP 代理中转下载（来自 ${host}:${port}）。`,
+    href,
+  };
+}
+
+function resolveLocalAbsolutePath(basePath: string, relativePath: string) {
+  const normalizedRelativePath = relativePath.replace(/^\/+/, "");
+  const allowedRoot = path.resolve(basePath);
+  const absolutePath = path.resolve(allowedRoot, normalizedRelativePath);
+  const relativeToRoot = path.relative(allowedRoot, absolutePath);
+
+  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+    throw new Error("非法路径");
+  }
+
+  return absolutePath;
+}
+
+function isEditableTextFile(input: { entryType: "FILE" | "DIRECTORY"; name: string; mimeType?: string | null }) {
+  if (input.entryType !== "FILE") {
+    return false;
+  }
+
+  if (input.mimeType) {
+    const normalizedMimeType = input.mimeType.toLowerCase();
+    if (EDITABLE_TEXT_MIME_PREFIXES.some((prefix) => normalizedMimeType.startsWith(prefix))) {
+      return true;
+    }
+
+    if (EDITABLE_TEXT_MIME_TYPES.has(normalizedMimeType)) {
+      return true;
+    }
+  }
+
+  return EDITABLE_TEXT_EXTENSIONS.has(path.extname(input.name).toLowerCase());
+}
+
+async function resolveLocalEditableFileEntry(fileEntryId: string) {
+  const entry = await prisma.fileEntry.findUnique({
+    where: { id: fileEntryId },
+    include: {
+      storageNode: {
+        select: {
+          id: true,
+          name: true,
+          driver: true,
+          basePath: true,
+        },
+      },
+    },
+  });
+
+  if (!entry || entry.isDeleted) {
+    throw new Error("文件条目不存在或已删除");
+  }
+
+  if (entry.storageNode.driver !== "LOCAL") {
+    throw new Error("仅支持编辑已上传到当前服务器本机存储节点的文件");
+  }
+
+  if (!isEditableTextFile({ entryType: entry.entryType, name: entry.name, mimeType: entry.mimeType })) {
+    throw new Error("当前仅支持编辑文本类文件");
+  }
+
+  const absolutePath = resolveLocalAbsolutePath(entry.storageNode.basePath, entry.relativePath);
+  await access(absolutePath);
+  const fileStat = await stat(absolutePath);
+
+  if (!fileStat.isFile()) {
+    throw new Error("目标不是可编辑文件");
+  }
+
+  if (fileStat.size > MAX_EDITABLE_FILE_SIZE_BYTES) {
+    throw new Error("文件超过 512 KB，暂不支持在线编辑");
+  }
+
+  return { entry, absolutePath, fileStat };
+}
+
+function getStorageDemoFallbackEnabled() {
+  return process.env.ENABLE_DEMO_FALLBACK === "true" || process.env.STORAGE_DEMO_FALLBACK === "true";
+}
+
+async function ensureDefaultNodeState(isDefault?: boolean) {
+  if (isDefault) {
+    await prisma.storageNode.updateMany({ where: {}, data: { isDefault: false } });
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "-";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+export async function createStorageNode(input: CreateStorageNodeInput) {
+  const payload = createStorageNodeSchema.parse(input);
+
+  if (payload.driver === "SFTP" && !payload.serverId && !payload.host) {
+    throw new Error("SFTP 存储节点必须绑定 VPS 节点或指定远端主机");
+  }
+
+  await ensureDefaultNodeState(payload.isDefault);
+
+  const storageNode = await prisma.storageNode.create({
+    data: {
+      name: payload.name,
+      driver: payload.driver,
+      basePath: payload.basePath,
+      isDefault: payload.isDefault,
+      host: payload.host,
+      port: payload.port,
+      username: payload.username,
+      serverId: payload.serverId,
+    },
+    include: {
+      server: {
+        select: { id: true, name: true, host: true, port: true, username: true },
+      },
+    },
+  });
+
+  return {
+    ...storageNode,
+    connectionSummary: buildStorageConnectionSummary({
+      driver: storageNode.driver,
+      basePath: storageNode.basePath,
+      host: storageNode.host ?? storageNode.server?.host,
+      port: storageNode.port ?? storageNode.server?.port,
+      username: storageNode.username ?? storageNode.server?.username,
+      serverName: storageNode.server?.name,
+    }),
+ directAccess: buildDirectAccessStrategy({
+ driver: storageNode.driver,
+ nodeId: storageNode.id,
+ host: storageNode.host ?? storageNode.server?.host,
+ port: storageNode.port ?? storageNode.server?.port,
+ }),
+  };
+}
+
+export async function updateStorageNode(input: UpdateStorageNodeInput) {
+  const payload = updateStorageNodeSchema.parse(input);
+  const current = await prisma.storageNode.findUnique({
+    where: { id: payload.storageNodeId },
+    include: { server: { select: { id: true, name: true, host: true, port: true, username: true } } },
+  });
+
+  if (!current) {
+    throw new Error("存储节点不存在或已删除");
+  }
+
+  const nextDriver = payload.driver ?? current.driver;
+  const nextServerId = payload.serverId ?? current.serverId ?? undefined;
+  const nextHost = payload.host ?? current.host ?? undefined;
+
+  if (nextDriver === "SFTP" && !nextServerId && !nextHost) {
+    throw new Error("SFTP 存储节点必须绑定 VPS 节点或指定远端主机");
+  }
+
+  await ensureDefaultNodeState(payload.isDefault);
+
+  return prisma.storageNode.update({
+    where: { id: payload.storageNodeId },
+    data: {
+      name: payload.name ?? current.name,
+      driver: nextDriver,
+      basePath: payload.basePath ?? current.basePath,
+      isDefault: payload.isDefault ?? current.isDefault,
+      host: payload.host ?? current.host,
+      port: payload.port ?? current.port,
+      username: payload.username ?? current.username,
+      serverId: payload.serverId ?? current.serverId,
+    },
+  });
+}
+
+export async function deleteStorageNode(storageNodeId: string) {
+  const node = await prisma.storageNode.findUnique({
+    where: { id: storageNodeId },
+    include: { fileEntries: { select: { id: true, isDeleted: true } } },
+  });
+
+  if (!node) {
+    throw new Error("存储节点不存在或已删除");
+  }
+
+  const activeEntryCount = node.fileEntries.filter((entry) => !entry.isDeleted).length;
+  if (activeEntryCount > 0) {
+    throw new Error("该存储节点下仍有文件条目，请先删除或迁移文件后再移除节点");
+  }
+
+  await prisma.storageNode.delete({ where: { id: storageNodeId } });
+  return { deleted: true };
+}
+
+export async function listStorageNodes() {
+  try {
+    const nodes = await prisma.storageNode.findMany({
+      orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+      include: {
+        server: { select: { id: true, name: true, host: true, port: true, username: true } },
+        fileEntries: { where: { isDeleted: false }, select: { id: true } },
+      },
+    });
+
+	return nodes.map((node) => ({
+		id: node.id,
+		name: node.name,
+		driver: node.driver,
+		isDefault: node.isDefault,
+		basePath: node.basePath,
+		host: node.host,
+		port: node.port,
+		username: node.username,
+		serverId: node.serverId,
+		createdAt: node.createdAt?.toISOString?.() ?? node.createdAt,
+		updatedAt: node.updatedAt?.toISOString?.() ?? node.updatedAt,
+		server: node.server,
+		fileCount: node.fileEntries.length,
+      connectionSummary: buildStorageConnectionSummary({
+        driver: node.driver,
+        basePath: node.basePath,
+        host: node.host ?? node.server?.host,
+        port: node.port ?? node.server?.port,
+        username: node.username ?? node.server?.username,
+        serverName: node.server?.name,
+      }),
+ directAccess: buildDirectAccessStrategy({
+ driver: node.driver,
+ nodeId: node.id,
+ host: node.host ?? node.server?.host,
+ port: node.port ?? node.server?.port,
+ }),
+    }));
+  } catch (error) {
+    if (isDatabaseUnavailableError(error) && getStorageDemoFallbackEnabled()) {
+      return DEMO_STORAGE_OVERVIEW.nodes;
+    }
+
+    throw error;
+  }
+}
+
+export async function createFileEntry(input: CreateFileEntryInput) {
+  const payload = createFileEntrySchema.parse(input);
+
+  return prisma.fileEntry.create({
+    data: {
+      storageNodeId: payload.storageNodeId,
+      name: payload.name,
+      entryType: payload.entryType,
+      mimeType: payload.mimeType,
+      size: payload.size == null ? undefined : BigInt(payload.size),
+      checksumSha256: payload.checksumSha256,
+      relativePath: payload.relativePath,
+      parentId: payload.parentId,
+    },
+  });
+}
+
+export async function updateFileEntry(input: UpdateFileEntryInput) {
+  const payload = updateFileEntrySchema.parse(input);
+  const current = await prisma.fileEntry.findUnique({ where: { id: payload.fileEntryId } });
+
+  if (!current) {
+    throw new Error("文件条目不存在或已删除");
+  }
+
+  return prisma.fileEntry.update({
+    where: { id: payload.fileEntryId },
+    data: {
+      storageNodeId: payload.storageNodeId ?? current.storageNodeId,
+      name: payload.name ?? current.name,
+      mimeType: payload.mimeType ?? current.mimeType,
+      size: payload.size == null ? current.size : BigInt(payload.size),
+      checksumSha256: payload.checksumSha256 ?? current.checksumSha256,
+      relativePath: payload.relativePath ?? current.relativePath,
+      parentId: payload.parentId ?? current.parentId,
+    },
+  });
+}
+
+export async function softDeleteFileEntry(input: FileEntryMutationInput) {
+  const payload = fileEntryMutationSchema.parse(input);
+  const current = await prisma.fileEntry.findUnique({ where: { id: payload.fileEntryId } });
+
+  if (!current) {
+    throw new Error("文件条目不存在或已删除");
+  }
+
+  return prisma.fileEntry.update({
+    where: { id: payload.fileEntryId },
+    data: { isDeleted: true },
+  });
+}
+
+export async function restoreFileEntry(input: FileEntryMutationInput) {
+  const payload = fileEntryMutationSchema.parse(input);
+  const current = await prisma.fileEntry.findUnique({ where: { id: payload.fileEntryId } });
+
+  if (!current) {
+    throw new Error("文件条目不存在或已删除");
+  }
+
+  return prisma.fileEntry.update({
+    where: { id: payload.fileEntryId },
+    data: { isDeleted: false },
+  });
+}
+
+export async function listFileEntries(storageNodeId?: string) {
+  try {
+    const where = {
+      isDeleted: false,
+      ...(storageNodeId ? { storageNodeId } : {}),
+    };
+
+    const entries = await prisma.fileEntry.findMany({
+      where,
+      orderBy: [{ entryType: "asc" }, { relativePath: "asc" }],
+      include: {
+        storageNode: {
+          select: {
+            id: true,
+            name: true,
+            driver: true,
+            basePath: true,
+            host: true,
+            port: true,
+            username: true,
+            server: { select: { id: true, name: true, host: true, port: true } },
+          },
+        },
+      },
+    });
+
+	return entries.map((entry) => {
+			const directAccess = buildDirectAccessStrategy({
+				driver: entry.storageNode.driver,
+				nodeId: entry.storageNode.id,
+				host: entry.storageNode.host ?? entry.storageNode.server?.host,
+				port: entry.storageNode.port ?? entry.storageNode.server?.port,
+				relativePath: entry.relativePath,
+			});
+
+			return {
+				id: entry.id,
+				storageNodeId: entry.storageNodeId,
+				name: entry.name,
+				entryType: entry.entryType,
+				mimeType: entry.mimeType,
+				size: entry.size,
+				checksumSha256: entry.checksumSha256,
+				relativePath: entry.relativePath,
+				parentId: entry.parentId,
+				isDeleted: entry.isDeleted,
+				createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
+				updatedAt: entry.updatedAt?.toISOString?.() ?? entry.updatedAt,
+				storageNode: entry.storageNode,
+				sizeLabel: entry.size == null ? "-" : formatFileSize(Number(entry.size)),
+				directAccess,
+				localEditable: entry.storageNode.driver === "LOCAL" && isEditableTextFile({ entryType: entry.entryType, name: entry.name, mimeType: entry.mimeType }),
+				previewable: Boolean(entry.mimeType?.startsWith("video/") || entry.mimeType?.startsWith("audio/") || entry.mimeType?.startsWith("image/") || entry.mimeType === "application/pdf" || entry.mimeType?.startsWith("text/")),
+			};
+		});
+  } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      return storageNodeId
+        ? DEMO_STORAGE_OVERVIEW.entries.filter((entry) => {
+            const node = DEMO_STORAGE_OVERVIEW.nodes.find((item) => item.name === entry.storageNode.name);
+            return node?.id === storageNodeId;
+          })
+        : DEMO_STORAGE_OVERVIEW.entries;
+    }
+
+    throw error;
+  }
+}
+
+export async function listDeletedFileEntries(storageNodeId?: string) {
+  const where = {
+    isDeleted: true,
+    ...(storageNodeId ? { storageNodeId } : {}),
+  };
+
+  const entries = await prisma.fileEntry.findMany({
+    where,
+    orderBy: [{ updatedAt: "desc" }],
+    include: {
+      storageNode: { select: { id: true, name: true, driver: true, host: true, port: true, server: { select: { host: true, port: true } } } },
+    },
+  });
+
+	return entries.map((entry) => ({
+		id: entry.id,
+		storageNodeId: entry.storageNodeId,
+		name: entry.name,
+		entryType: entry.entryType,
+		mimeType: entry.mimeType,
+		size: entry.size,
+		checksumSha256: entry.checksumSha256,
+		relativePath: entry.relativePath,
+		parentId: entry.parentId,
+		isDeleted: entry.isDeleted,
+		createdAt: entry.createdAt?.toISOString?.() ?? entry.createdAt,
+		updatedAt: entry.updatedAt?.toISOString?.() ?? entry.updatedAt,
+		storageNode: entry.storageNode,
+		sizeLabel: entry.size == null ? "-" : formatFileSize(Number(entry.size)),
+	}));
+}
+
+type DirectorySummary = {
+  storageNodeId: string;
+  storageNodeName: string;
+  storageNodeDriver: "LOCAL" | "SFTP";
+  path: string;
+  name: string;
+  itemCount: number;
+};
+
+function buildDirectorySummaries(entries: Awaited<ReturnType<typeof listFileEntries>>) {
+  const directories = new Map<string, DirectorySummary>();
+
+  const registerDirectory = (input: { storageNodeId: string; storageNodeName: string; storageNodeDriver: "LOCAL" | "SFTP"; path: string }) => {
+    const normalizedPath = input.path.replace(/^\/+|\/+$/g, "");
+    if (!normalizedPath) {
+      return;
+    }
+
+    const existing = directories.get(normalizedPath);
+    if (existing) {
+      existing.itemCount += 1;
+      return;
+    }
+
+    const segments = normalizedPath.split("/").filter(Boolean);
+    directories.set(normalizedPath, {
+      storageNodeId: input.storageNodeId,
+      storageNodeName: input.storageNodeName,
+      storageNodeDriver: input.storageNodeDriver,
+      path: normalizedPath,
+      name: segments.at(-1) ?? normalizedPath,
+      itemCount: 1,
+    });
+  };
+
+  for (const entry of entries) {
+    const segments = entry.relativePath.split("/").filter(Boolean);
+    if (segments.length === 0) {
+      continue;
+    }
+
+    const limit = entry.entryType === "DIRECTORY" ? segments.length : segments.length - 1;
+    for (let index = 0; index < limit; index += 1) {
+      registerDirectory({
+        storageNodeId: entry.storageNode.id,
+        storageNodeName: entry.storageNode.name,
+        storageNodeDriver: entry.storageNode.driver as "LOCAL" | "SFTP",
+        path: segments.slice(0, index + 1).join("/"),
+      });
+    }
+  }
+
+  return [...directories.values()].sort((left, right) => left.path.localeCompare(right.path, "zh-CN"));
+}
+
+export async function getStorageOverview() {
+  try {
+    const [nodes, entries, deletedEntries] = await Promise.all([listStorageNodes(), listFileEntries(), listDeletedFileEntries()]);
+    const remoteDirectories = buildDirectorySummaries(entries);
+
+    return {
+      nodes,
+      entries,
+      deletedEntries,
+      remoteDirectories,
+      stats: {
+        totalNodes: nodes.length,
+        defaultNodeName: nodes.find((node) => node.isDefault)?.name ?? "未配置",
+        localNodeCount: nodes.filter((node) => node.driver === "LOCAL").length,
+        sftpNodeCount: nodes.filter((node) => node.driver === "SFTP").length,
+        totalEntries: entries.length,
+        previewableEntries: entries.filter((entry) => entry.previewable).length,
+        deletedEntries: deletedEntries.length,
+        remoteDirectoryCount: remoteDirectories.length,
+      },
+    };
+  } catch (error) {
+    if (isDatabaseUnavailableError(error)) {
+      return { ...DEMO_STORAGE_OVERVIEW, deletedEntries: [], stats: { ...DEMO_STORAGE_OVERVIEW.stats, deletedEntries: 0 } };
+    }
+
+    throw error;
+  }
+}
+
+export async function getLocalEditableFileDraft(fileEntryId: string) {
+  const { entry, fileStat, absolutePath } = await resolveLocalEditableFileEntry(fileEntryId);
+  const content = await readFile(absolutePath, "utf8");
+
+  return {
+    fileEntryId: entry.id,
+    name: entry.name,
+    relativePath: entry.relativePath,
+    content,
+    byteSize: fileStat.size,
+	updatedAt: entry.updatedAt?.toISOString?.() ?? entry.updatedAt,
+  };
+}
+
+export async function updateLocalFileContent(input: UpdateLocalFileContentInput) {
+  const payload = updateLocalFileContentSchema.parse(input);
+  const { entry, absolutePath } = await resolveLocalEditableFileEntry(payload.fileEntryId);
+  const contentBuffer = Buffer.from(payload.content, "utf8");
+
+  await writeFile(absolutePath, contentBuffer);
+
+  return prisma.fileEntry.update({
+    where: { id: entry.id },
+    data: {
+      size: BigInt(contentBuffer.byteLength),
+      checksumSha256: createHash("sha256").update(contentBuffer).digest("hex"),
+    },
+  });
+}

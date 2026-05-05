@@ -1,0 +1,247 @@
+import { createReadStream } from "node:fs";
+import { access, mkdir, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import { NextResponse } from "next/server";
+
+import { requireSession } from "@/lib/auth/require-session";
+import { sessionHasPermission } from "@/lib/auth/authorization";
+import { prisma } from "@/lib/db";
+import { assertStorageAccess } from "@/lib/storage/access-control";
+
+type UploadLike = {
+  arrayBuffer(): Promise<ArrayBuffer>;
+  name?: string;
+  type?: string;
+  size?: number;
+};
+
+function isUploadLike(value: unknown): value is UploadLike {
+  return !!value && typeof value === "object" && typeof (value as UploadLike).arrayBuffer === "function";
+}
+
+export const dynamic = "force-dynamic";
+
+function toSafeDownloadName(fileName: string) {
+  return fileName.replace(/[\r\n"]/g, "_");
+}
+
+function resolveManagedLocalPath(basePath: string, relativePath: string) {
+  const normalizedRelativePath = relativePath.replace(/^\/+/, "");
+  const absolutePath = path.resolve(basePath, normalizedRelativePath);
+  const allowedRoot = path.resolve(basePath);
+  const relativeToRoot = path.relative(allowedRoot, absolutePath);
+
+  if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+    throw new Error("非法路径");
+  }
+
+  return {
+    normalizedRelativePath,
+    absolutePath,
+    allowedRoot,
+  };
+}
+
+function guessContentType(fileName: string, mimeType: string | null) {
+  if (mimeType) {
+    return mimeType;
+  }
+
+  const ext = path.extname(fileName).toLowerCase();
+  if ([".jpg", ".jpeg"].includes(ext)) return "image/jpeg";
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".svg") return "image/svg+xml";
+  if (ext === ".mp4") return "video/mp4";
+  if (ext === ".mp3") return "audio/mpeg";
+  if (ext === ".wav") return "audio/wav";
+  if (ext === ".pdf") return "application/pdf";
+  if (ext === ".txt") return "text/plain; charset=utf-8";
+  if (ext === ".json") return "application/json; charset=utf-8";
+  return "application/octet-stream";
+}
+
+export async function GET(request: Request) {
+  const session = await requireSession("/storage");
+
+  const url = new URL(request.url);
+  const relativePath = url.searchParams.get("path");
+  const download = url.searchParams.get("download") === "1";
+
+  if (!relativePath) {
+    return NextResponse.json({ error: "缺少 path 参数" }, { status: 400 });
+  }
+
+  const entry = await prisma.fileEntry.findFirst({
+    where: {
+      relativePath,
+      isDeleted: false,
+      storageNode: {
+        driver: "LOCAL",
+      },
+    },
+    include: {
+      storageNode: {
+        select: {
+          id: true,
+          name: true,
+          basePath: true,
+          driver: true,
+        },
+      },
+    },
+  });
+
+  if (!entry) {
+    return NextResponse.json({ error: "文件条目不存在，或未登记为本机存储文件" }, { status: 404 });
+  }
+
+  const accessDecision = await assertStorageAccess({
+    session,
+    storageNodeId: entry.storageNode.id,
+    relativePath: entry.relativePath,
+    operation: "read",
+  });
+  if (!accessDecision.allowed) {
+    return NextResponse.json({ error: accessDecision.reason ?? "缺少存储访问授权" }, { status: 403 });
+  }
+
+  let absolutePath: string;
+  try {
+    ({ absolutePath } = resolveManagedLocalPath(entry.storageNode.basePath, relativePath));
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "非法路径" }, { status: 400 });
+  }
+
+  try {
+    await access(absolutePath);
+    const fileStat = await stat(absolutePath);
+    if (!fileStat.isFile()) {
+      return NextResponse.json({ error: "目标不是可下载文件" }, { status: 400 });
+    }
+
+    const stream = createReadStream(absolutePath);
+    const body = stream as unknown as ReadableStream;
+    const headers = new Headers();
+    headers.set("content-type", guessContentType(entry.name, entry.mimeType));
+    headers.set("content-length", String(fileStat.size));
+    headers.set("cache-control", "private, no-store");
+    headers.set(
+      "content-disposition",
+      `${download ? "attachment" : "inline"}; filename="${toSafeDownloadName(entry.name)}"`,
+    );
+
+    return new Response(body, { status: 200, headers });
+  } catch {
+    return NextResponse.json({ error: "文件不存在或暂时无法读取" }, { status: 404 });
+  }
+}
+
+export async function POST(request: Request) {
+  const session = await requireSession();
+  if (!sessionHasPermission(session, "storage:write")) {
+    return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+  }
+
+  const formData = await request.formData();
+  const storageNodeId = String(formData.get("storageNodeId") ?? "").trim();
+  const relativePath = String(formData.get("relativePath") ?? "").trim();
+  const file = formData.get("file");
+
+  if (!storageNodeId) {
+    return NextResponse.json({ error: "缺少 storageNodeId 参数" }, { status: 400 });
+  }
+
+  if (!relativePath) {
+    return NextResponse.json({ error: "缺少 relativePath 参数" }, { status: 400 });
+  }
+
+  if (!isUploadLike(file)) {
+    return NextResponse.json({ error: "缺少上传文件" }, { status: 400 });
+  }
+
+  const storageNode = await prisma.storageNode.findUnique({
+    where: { id: storageNodeId },
+    select: {
+      id: true,
+      name: true,
+      driver: true,
+      basePath: true,
+    },
+  });
+
+  if (!storageNode || storageNode.driver !== "LOCAL") {
+    return NextResponse.json({ error: "仅支持上传到本机 LOCAL 存储节点" }, { status: 400 });
+  }
+
+  let normalizedRelativePath: string;
+  let absolutePath: string;
+
+  try {
+    ({ normalizedRelativePath, absolutePath } = resolveManagedLocalPath(storageNode.basePath, relativePath));
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "非法路径" }, { status: 400 });
+  }
+
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  const byteSize = typeof file.size === "number" && Number.isFinite(file.size) && file.size >= 0 ? file.size : fileBuffer.byteLength;
+  const accessDecision = await assertStorageAccess({
+    session,
+    storageNodeId,
+    relativePath: normalizedRelativePath,
+    operation: "write",
+    writeBytes: byteSize,
+  });
+  if (!accessDecision.allowed) {
+    return NextResponse.json({ error: accessDecision.reason ?? "缺少存储写入授权" }, { status: 403 });
+  }
+  const mimeType = file.type || null;
+  const fileName = path.basename(normalizedRelativePath);
+  const parentDir = path.dirname(absolutePath);
+
+  await mkdir(parentDir, { recursive: true });
+  await writeFile(absolutePath, fileBuffer);
+
+  const existingEntry = await prisma.fileEntry.findFirst({
+    where: {
+      storageNodeId,
+      relativePath: normalizedRelativePath,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (existingEntry) {
+    await prisma.fileEntry.update({
+      where: { id: existingEntry.id },
+      data: {
+        name: fileName,
+        entryType: "FILE",
+        mimeType,
+        size: BigInt(byteSize),
+        isDeleted: false,
+      },
+    });
+  } else {
+    await prisma.fileEntry.create({
+      data: {
+        storageNodeId,
+        name: fileName,
+        entryType: "FILE",
+        mimeType,
+        size: BigInt(byteSize),
+        relativePath: normalizedRelativePath,
+      },
+    });
+  }
+
+  return NextResponse.json({
+    ok: true,
+    storageNodeId,
+    relativePath: normalizedRelativePath,
+    size: byteSize,
+  });
+}

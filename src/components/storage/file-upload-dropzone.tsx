@@ -1,0 +1,250 @@
+"use client";
+
+import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useRouter } from "next/navigation";
+
+type StorageUploadNode = { id: string; name: string; driver: string };
+
+type UploadMessage = { type: "success" | "error"; text: string } | null;
+type UploadQueueItem = { name: string; status: "pending" | "uploading" | "success" | "error"; message: string };
+
+const DEFAULT_NODE = "";
+
+function normalizeRelativePath(input: string) {
+  return input
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join("/");
+}
+
+export function FileUploadDropzone({
+  nodes,
+  initialNodeId,
+  initialRelativeDir = "",
+  title,
+  description,
+  submitLabel,
+  pathLabel,
+  allowNodeSelection = true,
+  onUploadComplete,
+}: {
+  nodes: StorageUploadNode[];
+  initialNodeId?: string;
+  initialRelativeDir?: string;
+  title: string;
+  description: string;
+  submitLabel: string;
+  pathLabel: string;
+  allowNodeSelection?: boolean;
+  onUploadComplete?: (payload: { relativePath?: string; size?: number }) => void;
+}) {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState(initialNodeId ?? nodes.find((node) => node.driver === "LOCAL")?.id ?? DEFAULT_NODE);
+  const [relativeDir, setRelativeDir] = useState(initialRelativeDir);
+  const [dragActive, setDragActive] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState<UploadMessage>(null);
+  const [queue, setQueue] = useState<UploadQueueItem[]>([]);
+
+  const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
+  const localEnabled = selectedNode?.driver === "LOCAL";
+
+  async function uploadFiles(files: File[]) {
+    if (!selectedNodeId) {
+      setMessage({ type: "error", text: "请先选择存储节点。" });
+      return;
+    }
+
+    if (!localEnabled) {
+      setMessage({ type: "error", text: "当前仅支持上传到本机 LOCAL 节点。" });
+      return;
+    }
+
+    const uploadItems = files.filter((file) => file.size >= 0);
+    if (uploadItems.length === 0) return;
+
+    const baseDir = normalizeRelativePath(relativeDir);
+    setSubmitting(true);
+    setMessage(null);
+    setQueue(uploadItems.map((file) => ({ name: file.name, status: "pending", message: "等待上传" })));
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (let index = 0; index < uploadItems.length; index++) {
+      const file = uploadItems[index];
+      const relativePath = [baseDir, file.name].filter(Boolean).join("/");
+      const formData = new FormData();
+      formData.set("storageNodeId", selectedNodeId);
+      formData.set("relativePath", relativePath);
+      formData.set("file", file);
+
+      setQueue((prev) => prev.map((item, i) => (i === index ? { ...item, status: "uploading", message: "上传中…" } : item)));
+
+      try {
+        const response = await fetch("/api/storage/local", {
+          method: "POST",
+          body: formData,
+        });
+        const payload = (await response.json()) as { error?: string; relativePath?: string; size?: number };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "上传失败");
+        }
+
+        successCount++;
+        setQueue((prev) => prev.map((item, i) => (i === index ? { ...item, status: "success", message: `完成：${payload.relativePath ?? relativePath}` } : item)));
+        onUploadComplete?.({ relativePath: payload.relativePath ?? relativePath, size: payload.size ?? file.size });
+      } catch (error) {
+        failureCount++;
+        const errorMessage = error instanceof Error ? error.message : "上传失败";
+        setQueue((prev) => prev.map((item, i) => (i === index ? { ...item, status: "error", message: `失败：${errorMessage}` } : item)));
+      }
+    }
+
+    const total = uploadItems.length;
+    if (total === 1 && successCount === 1) {
+      setMessage({ type: "success", text: `上传完成：${[baseDir, uploadItems[0].name].filter(Boolean).join("/")}（${uploadItems[0].size} B）` });
+    } else if (failureCount === 0) {
+      setMessage({ type: "success", text: `上传完成 ${successCount}/${total} 个文件` });
+    } else if (successCount > 0) {
+      setMessage({ type: "success", text: `上传完成 ${successCount}/${total} 个文件，${failureCount} 个失败` });
+    } else {
+      setMessage({ type: "error", text: `上传失败：${failureCount}/${total} 个文件未上传` });
+    }
+
+    router.refresh();
+    setSubmitting(false);
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+  }
+
+  async function handleInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    await uploadFiles(files);
+  }
+
+  async function handleDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    const files = Array.from(event.dataTransfer.files ?? []);
+    await uploadFiles(files);
+  }
+
+  return (
+    <section className="rounded-3xl border border-white/10 bg-slate-900/60 p-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold text-white">{title}</h2>
+          <p className="text-sm text-slate-400">{description}</p>
+        </div>
+      </div>
+
+      <div className={`mt-5 grid gap-4 ${allowNodeSelection ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "md:grid-cols-1"}`}>
+        {allowNodeSelection ? (
+          <label className="grid gap-2 text-sm text-slate-300">
+            <span>上传到节点</span>
+            <select
+              aria-label="上传到节点"
+              value={selectedNodeId}
+              onChange={(event) => setSelectedNodeId(event.currentTarget.value)}
+              className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white"
+            >
+              <option value="">请选择存储节点</option>
+              {nodes.map((node) => (
+                <option key={node.id} value={node.id}>
+                  {node.name} · {node.driver}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        <label className="grid gap-2 text-sm text-slate-300">
+          <span>{pathLabel}</span>
+          <input
+            aria-label={pathLabel}
+            value={relativeDir}
+            onChange={(event) => setRelativeDir(event.currentTarget.value)}
+            className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white"
+            placeholder="docs 或 media/videos"
+            readOnly={!allowNodeSelection}
+          />
+        </label>
+      </div>
+
+      <input ref={inputRef} type="file" multiple className="hidden" onChange={handleInputChange} />
+
+      <button
+        type="button"
+        aria-label={submitLabel}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (localEnabled && !submitting) {
+            setDragActive(true);
+          }
+        }}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          setDragActive(false);
+        }}
+        onDrop={handleDrop}
+        disabled={!localEnabled || submitting}
+        className={`mt-5 flex min-h-40 w-full flex-col items-center justify-center rounded-3xl border border-dashed px-6 py-8 text-center transition ${
+          localEnabled
+            ? dragActive
+              ? "border-cyan-300 bg-cyan-400/10 text-cyan-100"
+              : "border-white/15 bg-white/5 text-slate-100 hover:border-cyan-400/50"
+            : "cursor-not-allowed border-white/10 bg-slate-950/60 text-slate-500"
+        }`}
+      >
+        <span className="text-base font-medium">{submitLabel}</span>
+        <span className="mt-2 text-sm text-slate-400">
+          {localEnabled ? (submitting ? "上传中，请稍候…" : "上传后会自动生成/更新文件条目。") : "请选择 LOCAL 节点后再上传。"}
+        </span>
+      </button>
+
+      {message ? (
+        <div
+          className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+            message.type === "success"
+              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+              : "border-rose-400/30 bg-rose-400/10 text-rose-100"
+          }`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+
+      {queue.length > 0 ? (
+        <div className="mt-3 space-y-1 rounded-2xl border border-white/10 bg-slate-950/50 p-3 text-xs text-slate-300">
+          {queue.map((item, index) => (
+            <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-3">
+              <span className="truncate">
+                {item.name} · {item.message}
+              </span>
+              <span
+                className={
+                  item.status === "success"
+                    ? "text-emerald-200"
+                    : item.status === "error"
+                      ? "text-rose-200"
+                      : item.status === "uploading"
+                        ? "text-cyan-200"
+                        : "text-slate-400"
+                }
+              >
+                {item.status === "success" ? "完成" : item.status === "error" ? "失败" : item.status === "uploading" ? "上传中" : "等待"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}

@@ -1,0 +1,102 @@
+"use client";
+
+import { useActionState, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { type MoveFileActionState, moveFileAction } from "./move-file-action";
+
+const initialState: MoveFileActionState = {};
+
+export function MoveInlineForm({
+ fileEntryId,
+ name,
+ relativePath,
+	storageNodeId,
+	onRefresh,
+}: {
+ fileEntryId: string;
+ name: string;
+ relativePath: string;
+ storageNodeId: string;
+ storageNodeName: string;
+ onRefresh?: () => void;
+}) {
+ const router = useRouter();
+ const [editing, setEditing] = useState(false);
+ const [targetDir, setTargetDir] = useState("");
+ const inputRef = useRef<HTMLInputElement | null>(null);
+ const [state, formAction] = useActionState(moveFileAction, initialState);
+
+ function handleToggle() {
+ setEditing(true);
+ setTargetDir("");
+ setTimeout(() => inputRef.current?.focus(), 0);
+ }
+
+ function handleCancel() {
+ setEditing(false);
+ setTargetDir("");
+ }
+
+ if (state.success) {
+ if (onRefresh) { onRefresh(); } else { router.refresh(); }
+ }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-100 transition hover:bg-emerald-400/20"
+      >
+        移动
+      </button>
+    );
+  }
+
+  const lastSlashIndex = relativePath.lastIndexOf("/");
+  const currentDir = lastSlashIndex >= 0 ? relativePath.substring(0, lastSlashIndex) : "";
+  const previewPath = targetDir.trim() ? `${targetDir.trim()}/${name}` : relativePath;
+
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-2">
+      <input type="hidden" name="fileEntryId" value={fileEntryId} />
+      <input type="hidden" name="currentRelativePath" value={relativePath} />
+      <input type="hidden" name="storageNodeId" value={storageNodeId} />
+      <label className="grid gap-1 text-sm text-slate-300">
+        <span className="sr-only">目标路径</span>
+        <input
+          ref={inputRef}
+          name="targetDir"
+          value={targetDir}
+          onChange={(event) => setTargetDir(event.currentTarget.value)}
+          required
+          minLength={1}
+          placeholder={currentDir || "目标路径"}
+          className="rounded-2xl border border-white/10 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:border-cyan-400/50 focus:outline-none"
+        />
+      </label>
+      <span className="text-xs text-slate-400">→ /{previewPath}</span>
+      <button
+        type="submit"
+        disabled={!targetDir.trim() || targetDir.trim() === currentDir}
+        className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        确认
+      </button>
+      <button
+        type="button"
+        onClick={handleCancel}
+        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-white/10"
+      >
+        取消
+      </button>
+      {state.error ? (
+        <span className="text-xs text-rose-300">{state.error}</span>
+      ) : null}
+      {state.success ? (
+        <span className="text-xs text-emerald-300">{state.success}</span>
+      ) : null}
+    </form>
+  );
+}

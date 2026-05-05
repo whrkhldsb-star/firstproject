@@ -1,0 +1,62 @@
+"use client";
+
+import { useActionState, useState } from "react";
+
+import { deleteStorageNodeAction, type StorageActionState } from "./actions";
+
+const initialState: StorageActionState = {};
+
+export function StorageNodeDeleteButton({
+	storageNodeId,
+	nodeName,
+}: {
+	storageNodeId: string;
+	nodeName: string;
+}) {
+	const [confirming, setConfirming] = useState(false);
+	const [state, formAction] = useActionState(deleteStorageNodeAction, initialState);
+
+	function handleCancel() {
+		setConfirming(false);
+	}
+
+	if (!confirming) {
+		return (
+			<button
+				type="button"
+				onClick={() => setConfirming(true)}
+				className="rounded-full border border-rose-400/30 bg-rose-400/10 px-3 py-1 text-xs font-medium text-rose-100 transition hover:bg-rose-400/20"
+			>
+				删除
+			</button>
+		);
+	}
+
+	return (
+		<form action={formAction} className="flex flex-wrap items-center gap-3">
+			<input type="hidden" name="storageNodeId" value={storageNodeId} />
+			<span className="text-sm text-rose-200">
+				确认删除「{nodeName}」？
+			</span>
+			<button
+				type="submit"
+				className="rounded-full border border-rose-400/30 bg-rose-400/10 px-4 py-2 text-sm font-medium text-rose-100 transition hover:bg-rose-400/20"
+			>
+				确认
+			</button>
+			<button
+				type="button"
+				onClick={handleCancel}
+				className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10"
+			>
+				取消
+			</button>
+			{state.error ? (
+				<span className="text-xs text-rose-300">{state.error}</span>
+			) : null}
+			{state.success ? (
+				<span className="text-xs text-emerald-300">{state.success}</span>
+			) : null}
+		</form>
+	);
+}

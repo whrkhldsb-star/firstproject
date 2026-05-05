@@ -1,0 +1,102 @@
+"use client";
+
+import { useActionState, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { renameFileEntryAction, type StorageActionState } from "../storage/actions";
+
+const initialState: StorageActionState = {};
+
+export function RenameInlineForm({
+ fileEntryId,
+ currentName,
+	currentPath,
+	onRefresh,
+}: {
+ fileEntryId: string;
+ currentName: string;
+ currentPath: string;
+ entryType: "FILE" | "DIRECTORY";
+ onRefresh?: () => void;
+}) {
+ const router = useRouter();
+ const [editing, setEditing] = useState(false);
+ const [newName, setNewName] = useState(currentName);
+ const inputRef = useRef<HTMLInputElement | null>(null);
+ const [state, formAction] = useActionState(renameFileEntryAction, initialState);
+
+ function handleToggle() {
+ setEditing(true);
+ setNewName(currentName);
+ setTimeout(() => inputRef.current?.focus(), 0);
+ }
+
+ function handleCancel() {
+ setEditing(false);
+ setNewName(currentName);
+ }
+
+ if (state.success) {
+ if (onRefresh) { onRefresh(); } else { router.refresh(); }
+ }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100 transition hover:bg-amber-400/20"
+      >
+        重命名
+      </button>
+    );
+  }
+
+  const lastSlashIndex = currentPath.lastIndexOf("/");
+  const pathPrefix = lastSlashIndex >= 0 ? currentPath.substring(0, lastSlashIndex + 1) : "";
+  const previewPath = newName.trim() ? `${pathPrefix}${newName.trim()}` : currentPath;
+
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-3">
+      <input type="hidden" name="fileEntryId" value={fileEntryId} />
+      <label className="grid gap-1 text-sm text-slate-300">
+        <span className="sr-only">新名称</span>
+        <input
+          ref={inputRef}
+          name="newName"
+          value={newName}
+          onChange={(event) => setNewName(event.currentTarget.value)}
+          required
+          minLength={1}
+          maxLength={255}
+          pattern={String.raw`^[^\s/\\:*?"<>|]+$`}
+          placeholder="输入新名称"
+          className="rounded-2xl border border-white/10 bg-slate-950 px-4 py-2 text-sm text-white placeholder:text-slate-500"
+        />
+      </label>
+      {newName.trim() && newName !== currentName ? (
+        <span className="text-xs text-slate-400">路径：/{previewPath}</span>
+      ) : null}
+      <button
+        type="submit"
+        disabled={!newName.trim() || newName === currentName}
+        className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        确认
+      </button>
+      <button
+        type="button"
+        onClick={handleCancel}
+        className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10"
+      >
+        取消
+      </button>
+      {state.error ? (
+        <span className="text-xs text-rose-300">{state.error}</span>
+      ) : null}
+      {state.success ? (
+        <span className="text-xs text-emerald-300">{state.success}</span>
+      ) : null}
+    </form>
+  );
+}
