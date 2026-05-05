@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  getPathName,
+  joinStoragePath,
+  normalizeStorageRelativePath,
+  normalizeStorageTargetDirectory,
+} from "../path-utils";
+
+describe("storage path utils", () => {
+  it("normalizes safe relative paths consistently", () => {
+    expect(normalizeStorageRelativePath(" team-a//docs/报告.pdf ")).toEqual({ ok: true, path: "team-a/docs/报告.pdf" });
+    expect(normalizeStorageRelativePath("team-a\\docs\\a.txt")).toEqual({ ok: true, path: "team-a/docs/a.txt" });
+    expect(normalizeStorageTargetDirectory(".")).toEqual({ ok: true, path: "" });
+    expect(normalizeStorageTargetDirectory(" /team-a//docs ").ok).toBe(false);
+  });
+
+  it("rejects traversal, absolute-looking roots, control chars, and shell-hostile path chars", () => {
+    for (const value of [
+      "../secret.txt",
+      "team/../../secret.txt",
+      "/etc/passwd",
+      "team\u0000/a.txt",
+      "team/a:name.txt",
+      "team/a?.txt",
+    ]) {
+      expect(normalizeStorageRelativePath(value).ok).toBe(false);
+    }
+  });
+
+  it("rejects empty target file path but allows empty target directory", () => {
+    expect(normalizeStorageRelativePath(" ").ok).toBe(false);
+    expect(normalizeStorageTargetDirectory(" ")).toEqual({ ok: true, path: "" });
+  });
+
+  it("joins directories and names without allowing unsafe names", () => {
+    expect(joinStoragePath("team-a/docs", "a.txt")).toEqual({ ok: true, path: "team-a/docs/a.txt" });
+    expect(joinStoragePath("", "a.txt")).toEqual({ ok: true, path: "a.txt" });
+    expect(joinStoragePath("team-a", "../a.txt").ok).toBe(false);
+    expect(joinStoragePath("team-a", "bad:name.txt").ok).toBe(false);
+  });
+
+  it("extracts safe names from normalized paths", () => {
+    expect(getPathName("team-a/docs/a.txt")).toBe("a.txt");
+    expect(getPathName("a.txt")).toBe("a.txt");
+  });
+});

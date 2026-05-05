@@ -27,6 +27,7 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import { resolveDownloadTargetPath } from "@/lib/downloads/target-path";
+import { validateDownloadSourceUrl } from "@/lib/downloads/source-url";
 
 import {
   buildDirectDownloadCommand,
@@ -54,10 +55,6 @@ export const dynamic = "force-dynamic";
 
 function isMagnetLink(url: string): boolean {
   return url.startsWith("magnet:?");
-}
-
-function isHttpUrl(url: string): boolean {
-  return url.startsWith("http://") || url.startsWith("https://");
 }
 
 /** Map aria2 status to our DownloadTaskStatus */
@@ -137,9 +134,10 @@ export async function POST(request: Request) {
 
     const allUrls = isBatch && batchUrls?.length ? batchUrls : [url];
     for (const u of allUrls) {
-      if (!isMagnetLink(u) && !isHttpUrl(u)) {
+      const validation = validateDownloadSourceUrl(u);
+      if (!validation.ok) {
         return NextResponse.json(
-          { error: `不支持的链接格式: ${u.slice(0, 50)}` },
+          { error: validation.reason },
           { status: 400 },
         );
       }

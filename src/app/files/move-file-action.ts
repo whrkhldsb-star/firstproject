@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 
 import { requirePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
+import { assertStorageAccess } from "@/lib/storage/access-control";
+import { joinStoragePath, normalizeStorageRelativePath, normalizeStorageTargetDirectory } from "@/lib/storage/path-utils";
 
 export type MoveFileActionState = { error?: string; success?: string };
 
 export async function moveFileAction(_prev: MoveFileActionState | null, formData: FormData) {
-  await requirePermission("storage:write");
+  const session = await requirePermission("storage:write");
 
   try {
     const fileEntryId = String(formData.get("fileEntryId") ?? "").trim();
@@ -17,17 +19,12 @@ export async function moveFileAction(_prev: MoveFileActionState | null, formData
     if (!fileEntryId) return { error: "缺少文件参数" } satisfies MoveFileActionState;
     if (!targetDir) return { error: "目标路径不能为空" } satisfies MoveFileActionState;
 
-    // 路径规范化：去掉首尾斜杠和反斜杠
-    const normalizedTargetDir = targetDir
-      .replace(/\\/g, "/")
-      .split("/")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join("/");
-
-    if (/[\\:*?"<>|]/.test(normalizedTargetDir)) {
-      return { error: "目标路径包含非法字符" } satisfies MoveFileActionState;
+    const targetDirResult = normalizeStorageTargetDirectory(targetDir);
+    if (!targetDirResult.ok) {
+      return { error: targetDirResult.reason } satisfies MoveFileActionState;
     }
+
+    const normalizedTargetDir = targetDirResult.path;
 
     const entry = await prisma.fileEntry.findUnique({
       where: { id: fileEntryId },
@@ -43,8 +40,27 @@ export async function moveFileAction(_prev: MoveFileActionState | null, formData
 
     if (!entry) return { error: "文件条目不存在" } satisfies MoveFileActionState;
 
-    // 构造新路径
-    const newRelativePath = normalizedTargetDir ? `${normalizedTargetDir}/${entry.name}` : entry.name;
+    const joinedPath = joinStoragePath(normalizedTargetDir, entry.name);
+    if (!joinedPath.ok) {
+      return { error: joinedPath.reason } satisfies MoveFileActionState;
+    }
+
+    const newRelativePath = joinedPath.path;
+    const normalizedCurrentPath = normalizeStorageRelativePath(entry.relativePath);
+    if (!normalizedCurrentPath.ok) {
+      return { error: normalizedCurrentPath.reason } satisfies MoveFileActionState;
+    }
+
+    const destinationAccess = await assertStorageAccess({
+      session,
+      storageNodeId: entry.storageNodeId,
+      relativePath: newRelativePath,
+      operation: "write",
+    });
+
+    if (!destinationAccess.allowed) {
+      return { error: destinationAccess.reason ?? "没有该存储节点或路径的访问授权" } satisfies MoveFileActionState;
+    }
 
     if (newRelativePath === entry.relativePath) {
       return { error: "目标路径与当前路径相同" } satisfies MoveFileActionState;
@@ -63,6 +79,38 @@ export async function moveFileAction(_prev: MoveFileActionState | null, formData
 
     if (existing) {
       return { error: `目标路径 /${newRelativePath} 已存在同名文件` } satisfies MoveFileActionState;
+    }
+
+    // LOCAL 节点：在磁盘上实际移动文件，成功后再更新 DB，避免 DB/磁盘路径不一致
+    if (entry.storageNode.driver === "LOCAL") {
+      const { rename, mkdir } = await import("node:fs/promises");
+      const path = await import("node:path");
+
+      const oldAbsolutePath = path.resolve(entry.storageNode.basePath, normalizedCurrentPath.path);
+      const newAbsolutePath = path.resolve(entry.storageNode.basePath, newRelativePath);
+
+      const allowedRoot = path.resolve(entry.storageNode.basePath);
+      const oldRelativeToRoot = path.relative(allowedRoot, oldAbsolutePath);
+      const newRelativeToRoot = path.relative(allowedRoot, newAbsolutePath);
+
+      if (
+        oldRelativeToRoot.startsWith("..") ||
+        path.isAbsolute(oldRelativeToRoot) ||
+        newRelativeToRoot.startsWith("..") ||
+        path.isAbsolute(newRelativeToRoot)
+      ) {
+        return { error: "路径超出存储根目录" } satisfies MoveFileActionState;
+      }
+
+      try {
+        const targetAbsDir = path.dirname(newAbsolutePath);
+        await mkdir(targetAbsDir, { recursive: true });
+        await rename(oldAbsolutePath, newAbsolutePath);
+      } catch (error) {
+        return {
+          error: `本地文件移动失败：${error instanceof Error ? error.message : "未知错误"}`,
+        } satisfies MoveFileActionState;
+      }
     }
 
     // 如果是目录，还需要更新所有子条目的路径
@@ -91,38 +139,6 @@ export async function moveFileAction(_prev: MoveFileActionState | null, formData
       where: { id: fileEntryId },
       data: { relativePath: newRelativePath },
     });
-
-    // LOCAL 节点：在磁盘上实际移动文件
-    if (entry.storageNode.driver === "LOCAL") {
-      try {
-        const { rename, mkdir } = await import("node:fs/promises");
-        const path = await import("node:path");
-
-        const normalizedOldRelativePath = entry.relativePath.replace(/^\/+/, "");
-        const normalizedNewRelativePath = newRelativePath.replace(/^\/+/, "");
-
-        const oldAbsolutePath = path.resolve(entry.storageNode.basePath, normalizedOldRelativePath);
-        const newAbsolutePath = path.resolve(entry.storageNode.basePath, normalizedNewRelativePath);
-
-        const allowedRoot = path.resolve(entry.storageNode.basePath);
-        const oldRelativeToRoot = path.relative(allowedRoot, oldAbsolutePath);
-        const newRelativeToRoot = path.relative(allowedRoot, newAbsolutePath);
-
-        if (
-          !oldRelativeToRoot.startsWith("..") &&
-          !path.isAbsolute(oldRelativeToRoot) &&
-          !newRelativeToRoot.startsWith("..") &&
-          !path.isAbsolute(newRelativeToRoot)
-        ) {
-          // 确保目标目录存在
-          const targetAbsDir = path.dirname(newAbsolutePath);
-          await mkdir(targetAbsDir, { recursive: true });
-          await rename(oldAbsolutePath, newAbsolutePath);
-        }
-      } catch {
-        // 磁盘操作失败不阻塞 DB 更新
-      }
-    }
 
     revalidatePath("/");
     revalidatePath("/storage");

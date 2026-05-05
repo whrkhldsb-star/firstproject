@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 
+import { checkStorageNodeHealthAction } from "./actions";
 import { StorageNodeEditForm } from "./storage-node-edit-form";
 import { StorageNodeDeleteButton } from "./storage-node-delete-button";
 
@@ -18,6 +19,10 @@ type StorageNodeItem = {
 	connectionSummary: string;
 	directAccess: { mode: string; description: string; href: string | null };
 	fileCount: number;
+	healthStatus?: "UNKNOWN" | "HEALTHY" | "UNHEALTHY" | string | null;
+	lastHealthCheckAt?: string | null;
+	lastHealthError?: string | null;
+	lastHealthLatencyMs?: number | null;
 };
 
 export function StorageNodeList({
@@ -42,6 +47,24 @@ export function StorageNodeList({
 	);
 }
 
+function getHealthPresentation(status?: string | null) {
+	switch (status) {
+		case "HEALTHY":
+			return { label: "健康", className: "border-emerald-400/30 bg-emerald-400/10 text-emerald-100" };
+		case "UNHEALTHY":
+			return { label: "异常", className: "border-rose-400/30 bg-rose-400/10 text-rose-100" };
+		default:
+			return { label: "未检测", className: "border-slate-400/30 bg-slate-400/10 text-slate-200" };
+	}
+}
+
+function formatHealthTime(value?: string | null) {
+	if (!value) return "未检测";
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return value;
+	return date.toLocaleString("zh-CN", { hour12: false });
+}
+
 function StorageNodeCard({
 	node,
 	servers,
@@ -52,6 +75,17 @@ function StorageNodeCard({
 	canManageNodes: boolean;
 }) {
 	const [editing, setEditing] = useState(false);
+	const [message, setMessage] = useState<string | null>(null);
+	const [isPending, startTransition] = useTransition();
+	const health = getHealthPresentation(node.healthStatus);
+
+	function handleHealthCheck() {
+		setMessage(null);
+		startTransition(async () => {
+			const result = await checkStorageNodeHealthAction(node.id);
+			setMessage(result.success ?? result.error ?? null);
+		});
+	}
 
 	return (
 		<article className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -81,6 +115,27 @@ function StorageNodeCard({
 				</div>
 			</div>
 			<p className="mt-3 text-sm text-cyan-100">{node.directAccess.description}</p>
+			<div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<div className="flex flex-wrap items-center gap-2">
+						<span className={`rounded-full border px-3 py-1 text-xs ${health.className}`}>{health.label}</span>
+						<span>最近检测：{formatHealthTime(node.lastHealthCheckAt)}</span>
+						{node.lastHealthLatencyMs != null ? <span>{node.lastHealthLatencyMs} ms</span> : null}
+					</div>
+					{canManageNodes ? (
+						<button
+							type="button"
+							onClick={handleHealthCheck}
+							disabled={isPending}
+							className="rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-xs font-medium text-sky-100 transition hover:bg-sky-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+						>
+							{isPending ? "检测中..." : "立即检测"}
+						</button>
+					) : null}
+				</div>
+				{node.lastHealthError ? <p className="mt-2 text-xs text-amber-200">{node.lastHealthError}</p> : null}
+				{message ? <p className="mt-2 text-xs text-emerald-200">{message}</p> : null}
+			</div>
 			<p className="mt-2 text-xs text-slate-400">已登记文件：{node.fileCount}</p>
 
 		{editing ? (

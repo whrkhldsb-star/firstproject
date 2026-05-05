@@ -170,4 +170,34 @@ describe("FileUploadDropzone", () => {
     expect(formData.get("relativePath")).toBe("media/videos/clip.mp4");
   });
 
+  it("rejects unsafe upload directories on the client before sending files", async () => {
+    const onUploadComplete = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ relativePath: "ignored.txt", size: 7 }),
+    } as Response);
+
+    render(
+      <FileUploadDropzone
+        nodes={[localNode]}
+        initialNodeId="node_local"
+        initialRelativeDir="../secret"
+        title="上传"
+        description="上传文件"
+        submitLabel="选择文件"
+        pathLabel="上传目录路径"
+        onUploadComplete={onUploadComplete}
+      />,
+    );
+
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [new File(["secret"], "secret.txt")] },
+    });
+
+    await waitFor(() => expect(screen.getByText("路径不能包含 . 或 ..")).toBeInTheDocument());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onUploadComplete).not.toHaveBeenCalled();
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
 });

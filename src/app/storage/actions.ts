@@ -5,8 +5,14 @@ import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "@/lib/audit/service";
 import { requirePermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
-import { createFileEntry, createStorageNode, listStorageNodes, updateLocalFileContent, updateStorageNode, deleteStorageNode } from "@/lib/storage/service";
+import { checkStorageNodeHealth, createFileEntry, createStorageNode, listStorageNodes, updateLocalFileContent, updateStorageNode, deleteStorageNode } from "@/lib/storage/service";
 import { listServerProfiles } from "@/lib/server/service";
+import { normalizeRemoteTargetPath } from "@/lib/storage/remote-path";
+import {
+  joinStoragePath,
+  normalizeStorageEntryName,
+  normalizeStorageTargetDirectory,
+} from "@/lib/storage/path-utils";
 
 export type StorageActionState = {
   error?: string;
@@ -19,6 +25,22 @@ export async function getStorageFormOptions() {
     servers: servers.map((server: (typeof servers)[number]) => ({ id: server.id, name: server.name, host: server.host })),
     nodes: nodes.map((node: (typeof nodes)[number]) => ({ id: node.id, name: node.name, driver: node.driver })),
   };
+}
+
+export async function checkStorageNodeHealthAction(storageNodeId: string) {
+  await requirePermission("storage:manage-node");
+
+  try {
+    const result = await checkStorageNodeHealth(storageNodeId);
+    revalidatePath("/storage");
+    revalidatePath("/files");
+    return {
+      success: `节点健康检查完成：${result.healthStatus === "HEALTHY" ? "健康" : "异常"}`,
+      health: result,
+    } satisfies StorageActionState & { health: Awaited<ReturnType<typeof checkStorageNodeHealth>> };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "节点健康检查失败" } satisfies StorageActionState;
+  }
 }
 
 export async function createStorageNodeAction(_prev: StorageActionState | null, formData: FormData) {
@@ -88,8 +110,18 @@ export async function createFolderAction(_prev: StorageActionState | null, formD
 
   try {
     const storageNodeId = String(formData.get("storageNodeId") ?? "").trim();
-    const currentPath = String(formData.get("currentPath") ?? "").trim();
-    const folderName = String(formData.get("folderName") ?? "").trim();
+    const currentPathResult = normalizeStorageTargetDirectory(String(formData.get("currentPath") ?? ""));
+    if (!currentPathResult.ok) {
+      return { error: currentPathResult.reason } satisfies StorageActionState;
+    }
+
+    const folderNameResult = normalizeStorageEntryName(String(formData.get("folderName") ?? ""));
+    if (!folderNameResult.ok) {
+      return { error: folderNameResult.reason } satisfies StorageActionState;
+    }
+
+    const currentPath = currentPathResult.path;
+    const folderName = folderNameResult.path;
 
     if (!storageNodeId) {
       return { error: "缺少存储节点参数" } satisfies StorageActionState;
@@ -99,11 +131,12 @@ export async function createFolderAction(_prev: StorageActionState | null, formD
       return { error: "文件夹名称不能为空" } satisfies StorageActionState;
     }
 
-    if (/[\\/\\:*?"<>|]/.test(folderName)) {
-      return { error: "文件夹名称包含非法字符" } satisfies StorageActionState;
+    const pathResult = joinStoragePath(currentPath, folderName);
+    if (!pathResult.ok) {
+      return { error: pathResult.reason } satisfies StorageActionState;
     }
 
-    const relativePath = currentPath ? `${currentPath}/${folderName}` : folderName;
+    const relativePath = pathResult.path;
 
     const existing = await prisma.fileEntry.findFirst({
       where: {
@@ -140,9 +173,8 @@ export async function createFolderAction(_prev: StorageActionState | null, formD
   if (storageNode.driver === "LOCAL") {
     const { mkdir } = await import("node:fs/promises");
     const path = await import("node:path");
-    const normalizedRelativePath = relativePath.replace(/^\/+/, "");
-    const absolutePath = path.resolve(storageNode.basePath, normalizedRelativePath);
     const allowedRoot = path.resolve(storageNode.basePath);
+    const absolutePath = path.resolve(allowedRoot, relativePath);
     const relativeToRoot = path.relative(allowedRoot, absolutePath);
 
     if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
@@ -166,9 +198,12 @@ export async function createFolderAction(_prev: StorageActionState | null, formD
       return { error: "SFTP 节点缺少 SSH 私钥（关联的 VPS 节点未配置私钥）" } satisfies StorageActionState;
     }
 
-    const remotePath = storageNode.basePath
-      ? `${storageNode.basePath.replace(/\/+$/, "")}/${relativePath}`
-      : relativePath;
+    let remotePath: string;
+    try {
+      remotePath = normalizeRemoteTargetPath(storageNode.basePath, relativePath);
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "非法路径" } satisfies StorageActionState;
+    }
 
     await createRemoteDirectory({
       host,

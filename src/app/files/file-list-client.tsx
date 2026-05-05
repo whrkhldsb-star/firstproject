@@ -149,6 +149,7 @@ type FileListClientProps = {
 /* ── view mode type ───────────────────────────────────────────────── */
 
 type ViewMode = "list" | "grid" | "details";
+type BatchProgress = { done: number; total: number; errors: string[] };
 
 /* ── SVG icon components ──────────────────────────────────────────── */
 
@@ -262,9 +263,9 @@ export function FileListClient({
   // Selection state (list view only)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchAction, setBatchAction] = useState<"none" | "confirm-delete" | "deleting" | "moving">("none");
-  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [progress, setProgress] = useState<BatchProgress>({ done: 0, total: 0, errors: [] });
   const [moveTargetDir, setMoveTargetDir] = useState("");
-  const [moveProgress, setMoveProgress] = useState({ done: 0, total: 0, errors: 0 });
+  const [moveProgress, setMoveProgress] = useState<BatchProgress>({ done: 0, total: 0, errors: [] });
   const [isPending, startTransition] = useTransition();
 
   const allFileIds = files.map((f) => f.id);
@@ -286,47 +287,59 @@ export function FileListClient({
   const clearSelection = useCallback(() => {
     setSelectedIds(new Set());
     setBatchAction("none");
-    setProgress({ done: 0, total: 0 });
-    setMoveProgress({ done: 0, total: 0, errors: 0 });
+    setProgress({ done: 0, total: 0, errors: [] });
+    setMoveProgress({ done: 0, total: 0, errors: [] });
   }, []);
 
   const handleBatchDelete = useCallback(() => {
     setBatchAction("deleting");
     const ids = [...selectedIds];
-    setProgress({ done: 0, total: ids.length });
+    setProgress({ done: 0, total: ids.length, errors: [] });
     let completed = 0;
+    const errors: string[] = [];
     startTransition(async () => {
       for (const id of ids) {
+        const file = files.find((item) => item.id === id);
         const formData = new FormData();
         formData.set("fileEntryId", id);
-        await deleteFileEntryAction(null, formData);
+        const result = await deleteFileEntryAction(null, formData);
         completed++;
-        setProgress({ done: completed, total: ids.length });
+        if (result?.error) {
+          errors.push(`${file?.name ?? id}: ${result.error}`);
+        }
+        setProgress({ done: completed, total: ids.length, errors: [...errors] });
       }
       if (onRefresh) { onRefresh(); } else { router.refresh(); }
-      clearSelection();
+      if (errors.length === 0) {
+        clearSelection();
+        return;
+      }
+      setBatchAction("none");
+      setSelectedIds(new Set(ids));
+      setProgress({ done: completed, total: ids.length, errors: [...errors] });
     });
-  }, [selectedIds, router, clearSelection, onRefresh]);
+  }, [selectedIds, files, router, clearSelection, onRefresh]);
 
   const handleBatchMove = useCallback(() => {
     setBatchAction("moving");
     setMoveTargetDir("");
-    setMoveProgress({ done: 0, total: 0, errors: 0 });
+    setMoveProgress({ done: 0, total: 0, errors: [] });
   }, []);
 
   const submitBatchMove = useCallback(() => {
     const ids = [...selectedIds];
     const targetDir = moveTargetDir.trim();
     if (!targetDir || ids.length === 0) return;
-    setMoveProgress({ done: 0, total: ids.length, errors: 0 });
+    setMoveProgress({ done: 0, total: ids.length, errors: [] });
     let completed = 0;
-    let errors = 0;
+    const errors: string[] = [];
     startTransition(async () => {
       for (const id of ids) {
         const file = files.find((f) => f.id === id);
         if (!file) {
-          errors++; completed++;
-          setMoveProgress({ done: completed, total: ids.length, errors });
+          errors.push(`${id}: 文件不存在`);
+          completed++;
+          setMoveProgress({ done: completed, total: ids.length, errors: [...errors] });
           continue;
         }
         const formData = new FormData();
@@ -336,11 +349,17 @@ export function FileListClient({
         formData.set("storageNodeId", file.storageNodeId);
         const result = await moveFileAction(null, formData);
         completed++;
-        if (result?.error) errors++;
-        setMoveProgress({ done: completed, total: ids.length, errors });
+        if (result?.error) errors.push(`${file.name}: ${result.error}`);
+        setMoveProgress({ done: completed, total: ids.length, errors: [...errors] });
       }
       if (onRefresh) { onRefresh(); } else { router.refresh(); }
-      clearSelection();
+      if (errors.length === 0) {
+        clearSelection();
+        return;
+      }
+      setBatchAction("none");
+      setSelectedIds(new Set(ids));
+      setMoveProgress({ done: completed, total: ids.length, errors: [...errors] });
     });
   }, [selectedIds, moveTargetDir, files, router, clearSelection, onRefresh]);
 
@@ -1040,6 +1059,19 @@ function renderDetailsView() {
 	{viewMode === "list" ? renderListView() : viewMode === "grid" ? renderGridView() : renderDetailsView()}
       </div>
 
+      {progress.errors.length > 0 || moveProgress.errors.length > 0 ? (
+        <div className="fixed bottom-20 left-1/2 z-50 max-w-lg -translate-x-1/2 rounded-2xl border border-amber-400/30 bg-amber-950/95 px-4 py-3 text-sm text-amber-100 shadow-2xl">
+          <p className="font-medium">
+            批量操作完成，{progress.errors.length + moveProgress.errors.length} 个失败
+          </p>
+          <ul className="mt-1 max-h-28 overflow-y-auto text-xs text-amber-100/80">
+            {[...progress.errors, ...moveProgress.errors].map((error) => (
+              <li key={error}>• {error}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
 	{/* Batch action toolbar (all view modes) */}
 	{selectedIds.size > 0 ? (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-900/95 backdrop-blur border border-white/10 rounded-2xl shadow-2xl px-5 py-3">
@@ -1078,6 +1110,9 @@ function renderDetailsView() {
                   />
                 </div>
               ) : null}
+              {progress.errors.length > 0 ? (
+                <span className="text-sm text-amber-200">{progress.errors.length} 个失败</span>
+              ) : null}
             </>
           ) : batchAction === "moving" ? (
             <>
@@ -1092,7 +1127,7 @@ function renderDetailsView() {
               {moveProgress.total > 0 ? (
                 <span className="text-sm text-cyan-200">
                   已移动 {moveProgress.done}/{moveProgress.total} 个
-                  {moveProgress.errors > 0 ? `（${moveProgress.errors} 个失败）` : ""}
+                  {moveProgress.errors.length > 0 ? `（${moveProgress.errors.length} 个失败）` : ""}
                 </span>
               ) : null}
               <button
@@ -1108,7 +1143,7 @@ function renderDetailsView() {
                 onClick={() => {
                   setBatchAction("none");
                   setMoveTargetDir("");
-                  setMoveProgress({ done: 0, total: 0, errors: 0 });
+                  setMoveProgress({ done: 0, total: 0, errors: [] });
                 }}
                 disabled={isPending && moveProgress.done > 0}
                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 disabled:opacity-50"

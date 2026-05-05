@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/require-session";
+import { sessionHasPermission } from "@/lib/auth/authorization";
 import { collectServerMetrics } from "@/lib/server/monitor";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+	let session;
 	try {
-		await requireSession();
+		session = await requireSession();
 	} catch {
 		return NextResponse.json({ error: "未认证" }, { status: 401 });
+	}
+
+	if (!sessionHasPermission(session, "server:read")) {
+		return NextResponse.json({ error: "权限不足" }, { status: 403 });
 	}
 
 	const { searchParams } = new URL(request.url);

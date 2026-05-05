@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import { access, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { isDatabaseUnavailableError, prisma } from "@/lib/db";
+import { listRemoteDirectory } from "@/lib/ssh/client";
+import { normalizeRemotePath } from "@/lib/storage/remote-path";
 import { DEMO_STORAGE_OVERVIEW } from "@/lib/demo-data";
 
 import {
@@ -191,6 +194,109 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+export type StorageNodeHealthStatus = "UNKNOWN" | "HEALTHY" | "UNHEALTHY";
+
+function sanitizeHealthError(error: unknown) {
+  const rawMessage = error instanceof Error ? error.message : String(error || "健康检查失败");
+  return rawMessage
+    .replace(/-----BEGIN[\s\S]*?-----END[^\n]+-----/g, "[REDACTED]")
+    .replace(/SECRET/gi, "[REDACTED]")
+    .slice(0, 500);
+}
+
+function serializeHealthFields(node: {
+  healthStatus?: string | null;
+  lastHealthCheckAt?: Date | string | null;
+  lastHealthError?: string | null;
+  lastHealthLatencyMs?: number | null;
+}) {
+  return {
+    healthStatus: (node.healthStatus ?? "UNKNOWN") as StorageNodeHealthStatus,
+    lastHealthCheckAt: node.lastHealthCheckAt
+      ? (typeof node.lastHealthCheckAt === "string" ? node.lastHealthCheckAt : node.lastHealthCheckAt.toISOString())
+      : null,
+    lastHealthError: node.lastHealthError ?? null,
+    lastHealthLatencyMs: node.lastHealthLatencyMs ?? null,
+  };
+}
+
+export async function checkStorageNodeHealth(storageNodeId: string) {
+  const node = await prisma.storageNode.findUnique({
+    where: { id: storageNodeId },
+    include: {
+      server: {
+        select: {
+          host: true,
+          port: true,
+          username: true,
+          password: true,
+          sshKeyId: true,
+          sshKey: { select: { privateKey: true } },
+        },
+      },
+    },
+  });
+
+  if (!node) {
+    throw new Error("存储节点不存在或已删除");
+  }
+
+  const startedAt = Date.now();
+  let healthStatus: StorageNodeHealthStatus = "HEALTHY";
+  let lastHealthError: string | null = null;
+
+  try {
+    if (node.driver === "LOCAL") {
+      const baseStat = await stat(node.basePath);
+      if (!baseStat.isDirectory()) {
+        throw new Error("本机存储根路径不是目录");
+      }
+      await access(node.basePath, fsConstants.R_OK | fsConstants.W_OK);
+    } else if (node.driver === "SFTP") {
+      const host = node.host ?? node.server?.host;
+      const port = node.port ?? node.server?.port ?? 22;
+      const username = node.username ?? node.server?.username ?? "root";
+      const privateKey = node.server?.sshKey?.privateKey ?? undefined;
+      const password = node.server?.password ?? undefined;
+
+      if (!host) {
+        throw new Error("SFTP 节点缺少主机地址");
+      }
+      if (!privateKey && !password) {
+        throw new Error("SFTP 节点缺少 SSH 凭据");
+      }
+
+      await listRemoteDirectory({
+        host,
+        port,
+        username,
+        privateKey,
+        password,
+        remotePath: normalizeRemotePath(node.basePath, ""),
+      });
+    }
+  } catch (error) {
+    healthStatus = "UNHEALTHY";
+    lastHealthError = sanitizeHealthError(error);
+  }
+
+  const lastHealthLatencyMs = Math.max(0, Date.now() - startedAt);
+  const updated = await prisma.storageNode.update({
+    where: { id: storageNodeId },
+    data: {
+      healthStatus,
+      lastHealthCheckAt: new Date(),
+      lastHealthError,
+      lastHealthLatencyMs,
+    },
+  });
+
+  return {
+    id: updated.id,
+    ...serializeHealthFields(updated),
+  };
+}
+
 export async function createStorageNode(input: CreateStorageNodeInput) {
   const payload = createStorageNodeSchema.parse(input);
 
@@ -314,6 +420,7 @@ export async function listStorageNodes() {
 		serverId: node.serverId,
 		createdAt: node.createdAt?.toISOString?.() ?? node.createdAt,
 		updatedAt: node.updatedAt?.toISOString?.() ?? node.updatedAt,
+		...serializeHealthFields(node),
 		server: node.server,
 		fileCount: node.fileEntries.length,
       connectionSummary: buildStorageConnectionSummary({

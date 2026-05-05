@@ -147,6 +147,20 @@ const password = (connectionType === "PASSWORD" ? node.server?.password : undefi
         } catch {
           return NextResponse.json(toClientStorageError("新路径超出存储节点根目录"), { status: 400 });
         }
+        const destinationAccessDecision = await assertStorageAccess({
+          session,
+          storageNodeId: node.id,
+          relativePath: body.newPath,
+          operation: "write",
+          writeBytes: null,
+        });
+        if (!destinationAccessDecision.allowed) {
+          return NextResponse.json(
+            { error: destinationAccessDecision.reason ?? "缺少目标路径存储访问授权" },
+            { status: 403 },
+          );
+        }
+
         await renameRemoteFile({
           ...connParams,
           oldPath: normalizedRemotePath,

@@ -18,6 +18,10 @@ type StorageNodeItem = {
 	connectionSummary: string;
 	directAccess: { mode: string; description: string; href: string | null };
 	fileCount: number;
+	healthStatus?: "UNKNOWN" | "HEALTHY" | "UNHEALTHY" | string | null;
+	lastHealthCheckAt?: string | null;
+	lastHealthError?: string | null;
+	lastHealthLatencyMs?: number | null;
 };
 
 export function StorageNodeManager({

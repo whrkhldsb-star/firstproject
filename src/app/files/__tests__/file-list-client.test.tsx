@@ -1,11 +1,13 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FileListClient, type FileProp, type FolderProp } from "../file-list-client";
 
 const pushMock = vi.hoisted(() => vi.fn());
 const refreshMock = vi.hoisted(() => vi.fn());
+const deleteFileEntryActionMock = vi.hoisted(() => vi.fn());
+const moveFileActionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -31,6 +33,14 @@ vi.mock("../rename-inline-form", () => ({
 vi.mock("../move-inline-form", () => ({
   MoveInlineForm: (props: { fileEntryId: string; name: string }) =>
     React.createElement("button", { type: "button", "data-testid": "move-btn", "data-file-entry-id": props.fileEntryId }, `移动 ${props.name}`),
+}));
+
+vi.mock("../../storage/actions", () => ({
+  deleteFileEntryAction: deleteFileEntryActionMock,
+}));
+
+vi.mock("../move-file-action", () => ({
+  moveFileAction: moveFileActionMock,
 }));
 
 const folder: FolderProp = {
@@ -61,17 +71,37 @@ const imageFile: FileProp = {
   updatedAt: "2026-05-04T00:00:00.000Z",
 };
 
-function renderFileList() {
+const archiveFile: FileProp = {
+  ...imageFile,
+  id: "file_2",
+  name: "archive.zip",
+  mimeType: "application/zip",
+  relativePath: "photos/archive.zip",
+  directAccessHref: "/api/storage/local?path=photos%2Farchive.zip",
+  updatedAt: "2026-05-05T00:00:00.000Z",
+};
+
+const docFile: FileProp = {
+  ...imageFile,
+  id: "file_3",
+  name: "report.pdf",
+  mimeType: "application/pdf",
+  relativePath: "photos/report.pdf",
+  directAccessHref: "/api/storage/local?path=photos%2Freport.pdf",
+  updatedAt: "2026-05-06T00:00:00.000Z",
+};
+
+function renderFileList(overrides: Partial<React.ComponentProps<typeof FileListClient>> = {}) {
   return render(
     <FileListClient
-      folders={[folder]}
-      files={[imageFile]}
-      canEditLocalFiles={true}
-      canDelete={true}
-      currentPath=""
-      searchQuery=""
-      onFolderClick={vi.fn()}
-      onRefresh={vi.fn()}
+      folders={overrides.folders ?? [folder]}
+      files={overrides.files ?? [imageFile]}
+      canEditLocalFiles={overrides.canEditLocalFiles ?? true}
+      canDelete={overrides.canDelete ?? true}
+      currentPath={overrides.currentPath ?? ""}
+      searchQuery={overrides.searchQuery ?? ""}
+      onFolderClick={overrides.onFolderClick ?? vi.fn()}
+      onRefresh={overrides.onRefresh ?? vi.fn()}
     />,
   );
 }
@@ -81,6 +111,8 @@ describe("FileListClient", () => {
     window.localStorage.clear();
     pushMock.mockClear();
     refreshMock.mockClear();
+    deleteFileEntryActionMock.mockReset().mockResolvedValue({ success: "ok" });
+    moveFileActionMock.mockReset().mockResolvedValue({ success: "ok" });
   });
 
   it("renders thumbnail background only for files and never as a folder overlay", () => {
@@ -109,15 +141,47 @@ describe("FileListClient", () => {
     expect(screen.getAllByRole("button", { name: "图标视图" })[1]).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("supports selecting files across grid view and exposes the batch toolbar", () => {
-    window.localStorage.setItem("whrkhldsb-file-view-mode", "grid");
-    renderFileList();
+  it("keeps batch delete selection open and reports per-file failures", async () => {
+    const onRefresh = vi.fn();
+    deleteFileEntryActionMock
+      .mockResolvedValueOnce({ success: "ok" })
+      .mockResolvedValueOnce({ error: "节点不可写" });
+
+    renderFileList({ files: [imageFile, archiveFile], onRefresh });
 
     fireEvent.click(screen.getByLabelText("选择 cover.jpg"));
+    fireEvent.click(screen.getByLabelText("选择 archive.zip"));
+    fireEvent.click(screen.getByRole("button", { name: "批量删除" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 
-    expect(screen.getByText("已选 1 个文件")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "批量删除" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "批量移动" })).toBeInTheDocument();
+    await waitFor(() => expect(deleteFileEntryActionMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/1 个失败/)).toBeInTheDocument());
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("已选 2 个文件")).toBeInTheDocument();
+    expect(screen.getByText(/节点不可写/)).toBeInTheDocument();
+  });
+
+  it("keeps batch move selection open and reports per-file failures", async () => {
+    const onRefresh = vi.fn();
+    moveFileActionMock
+      .mockResolvedValueOnce({ success: "ok" })
+      .mockResolvedValueOnce({ error: "目标目录不存在" })
+      .mockResolvedValueOnce({ success: "ok" });
+
+    renderFileList({ files: [imageFile, archiveFile, docFile], onRefresh });
+
+    fireEvent.click(screen.getByLabelText("选择 cover.jpg"));
+    fireEvent.click(screen.getByLabelText("选择 archive.zip"));
+    fireEvent.click(screen.getByLabelText("选择 report.pdf"));
+    fireEvent.click(screen.getByRole("button", { name: "批量移动" }));
+    fireEvent.change(screen.getByPlaceholderText("目标路径"), { target: { value: "archive" } });
+    fireEvent.click(screen.getByRole("button", { name: "确认移动" }));
+
+    await waitFor(() => expect(moveFileActionMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByText(/1 个失败/)).toBeInTheDocument());
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("已选 3 个文件")).toBeInTheDocument();
+    expect(screen.getByText(/archive\.zip: 目标目录不存在/)).toBeInTheDocument();
   });
 
 });

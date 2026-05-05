@@ -8,6 +8,7 @@ import { requireSession } from "@/lib/auth/require-session";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { assertStorageAccess } from "@/lib/storage/access-control";
+import { normalizeStorageRelativePath } from "@/lib/storage/path-utils";
 
 type UploadLike = {
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -27,9 +28,14 @@ function toSafeDownloadName(fileName: string) {
 }
 
 function resolveManagedLocalPath(basePath: string, relativePath: string) {
-  const normalizedRelativePath = relativePath.replace(/^\/+/, "");
-  const absolutePath = path.resolve(basePath, normalizedRelativePath);
+  const normalizedPath = normalizeStorageRelativePath(relativePath);
+  if (!normalizedPath.ok) {
+    throw new Error(normalizedPath.reason);
+  }
+
+  const normalizedRelativePath = normalizedPath.path;
   const allowedRoot = path.resolve(basePath);
+  const absolutePath = path.resolve(allowedRoot, normalizedRelativePath);
   const relativeToRoot = path.relative(allowedRoot, absolutePath);
 
   if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
@@ -74,9 +80,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "缺少 path 参数" }, { status: 400 });
   }
 
+  const normalizedDownloadPath = normalizeStorageRelativePath(relativePath);
+  if (!normalizedDownloadPath.ok) {
+    return NextResponse.json({ error: normalizedDownloadPath.reason }, { status: 400 });
+  }
+
   const entry = await prisma.fileEntry.findFirst({
     where: {
-      relativePath,
+      relativePath: normalizedDownloadPath.path,
       isDeleted: false,
       storageNode: {
         driver: "LOCAL",
@@ -110,7 +121,7 @@ export async function GET(request: Request) {
 
   let absolutePath: string;
   try {
-    ({ absolutePath } = resolveManagedLocalPath(entry.storageNode.basePath, relativePath));
+    ({ absolutePath } = resolveManagedLocalPath(entry.storageNode.basePath, normalizedDownloadPath.path));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "非法路径" }, { status: 400 });
   }
@@ -158,6 +169,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "缺少 relativePath 参数" }, { status: 400 });
   }
 
+  const normalizedUploadPath = normalizeStorageRelativePath(relativePath);
+  if (!normalizedUploadPath.ok) {
+    return NextResponse.json({ error: normalizedUploadPath.reason }, { status: 400 });
+  }
+
   if (!isUploadLike(file)) {
     return NextResponse.json({ error: "缺少上传文件" }, { status: 400 });
   }
@@ -180,7 +196,7 @@ export async function POST(request: Request) {
   let absolutePath: string;
 
   try {
-    ({ normalizedRelativePath, absolutePath } = resolveManagedLocalPath(storageNode.basePath, relativePath));
+    ({ normalizedRelativePath, absolutePath } = resolveManagedLocalPath(storageNode.basePath, normalizedUploadPath.path));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "非法路径" }, { status: 400 });
   }

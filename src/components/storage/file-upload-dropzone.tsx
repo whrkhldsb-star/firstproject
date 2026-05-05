@@ -8,15 +8,47 @@ type StorageUploadNode = { id: string; name: string; driver: string };
 type UploadMessage = { type: "success" | "error"; text: string } | null;
 type UploadQueueItem = { name: string; status: "pending" | "uploading" | "success" | "error"; message: string };
 
-const DEFAULT_NODE = "";
+type PathResult = { ok: true; path: string } | { ok: false; reason: string };
 
-function normalizeRelativePath(input: string) {
-  return input
+const DEFAULT_NODE = "";
+const CONTROL_CHAR_PATTERN = /[\u0000-\u001f\u007f]/;
+const DANGEROUS_CHAR_PATTERN = /[<>:"|?*]/;
+const MAX_SEGMENT_LENGTH = 255;
+const MAX_PATH_LENGTH = 4096;
+
+function normalizeRelativePath(input: string): PathResult {
+  const value = input.trim();
+  if (!value) {
+    return { ok: true, path: "" };
+  }
+  if (CONTROL_CHAR_PATTERN.test(value)) {
+    return { ok: false, reason: "路径包含控制字符" };
+  }
+  if (DANGEROUS_CHAR_PATTERN.test(value)) {
+    return { ok: false, reason: "路径包含非法字符" };
+  }
+  if (value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value)) {
+    return { ok: false, reason: "路径必须是相对路径" };
+  }
+
+  const segments = value
     .replace(/\\/g, "/")
     .split("/")
     .map((segment) => segment.trim())
-    .filter(Boolean)
-    .join("/");
+    .filter(Boolean);
+
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return { ok: false, reason: "路径不能包含 . 或 .." };
+  }
+  if (segments.some((segment) => segment.length > MAX_SEGMENT_LENGTH)) {
+    return { ok: false, reason: "路径段过长" };
+  }
+
+  const path = segments.join("/");
+  if (path.length > MAX_PATH_LENGTH) {
+    return { ok: false, reason: "路径过长" };
+  }
+  return { ok: true, path };
 }
 
 export function FileUploadDropzone({
@@ -69,7 +101,14 @@ export function FileUploadDropzone({
     const uploadItems = files.filter((file) => file.size >= 0);
     if (uploadItems.length === 0) return;
 
-    const baseDir = normalizeRelativePath(effectiveRelativeDir);
+    const baseDirResult = normalizeRelativePath(effectiveRelativeDir);
+    if (!baseDirResult.ok) {
+      setMessage({ type: "error", text: baseDirResult.reason });
+      setQueue([]);
+      return;
+    }
+
+    const baseDir = baseDirResult.path;
     setSubmitting(true);
     setMessage(null);
     setQueue(uploadItems.map((file) => ({ name: file.name, status: "pending", message: "等待上传" })));
