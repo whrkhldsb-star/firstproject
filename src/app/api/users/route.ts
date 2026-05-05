@@ -1,0 +1,190 @@
+import { NextResponse } from "next/server";
+
+import { requireSession } from "@/lib/auth/require-session";
+import { sessionHasPermission } from "@/lib/auth/authorization";
+import { prisma } from "@/lib/db";
+import { hashPassword } from "@/lib/auth/password";
+import { auditUserAction } from "@/lib/audit/service";
+
+export const dynamic = "force-dynamic";
+
+/** GET: List all users with their roles */
+export async function GET() {
+  const session = await requireSession();
+
+  if (!sessionHasPermission(session, "user:read")) {
+    return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+  }
+
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      username: true,
+      displayName: true,
+      status: true,
+      mustChangePassword: true,
+      createdAt: true,
+      updatedAt: true,
+      roles: {
+        include: {
+          role: { select: { key: true, name: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  // Strip passwordHash from response
+  const safeUsers = users.map((u) => ({
+    ...u,
+    roles: u.roles.map((r) => r.role),
+  }));
+
+  return NextResponse.json(safeUsers);
+}
+
+/** POST: Create a new user */
+export async function POST(request: Request) {
+  const session = await requireSession();
+
+  if (!sessionHasPermission(session, "user:manage")) {
+    return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+  }
+
+  try {
+    const body = await request.json();
+    const { username, displayName, password, roleKeys } = body as {
+      username: string;
+      displayName?: string;
+      password: string;
+      roleKeys: string[];
+    };
+
+    if (!username || !password) {
+      return NextResponse.json({ error: "用户名和密码不能为空" }, { status: 400 });
+    }
+
+    if (password.length < 6) {
+      return NextResponse.json({ error: "密码至少6位" }, { status: 400 });
+    }
+
+    // Check if username exists
+    const existing = await prisma.user.findUnique({ where: { username } });
+    if (existing) {
+      return NextResponse.json({ error: "用户名已存在" }, { status: 409 });
+    }
+
+    const passwordHash = await hashPassword(password);
+
+    const user = await prisma.user.create({
+      data: {
+        username,
+        displayName: displayName || null,
+        passwordHash,
+        status: "ACTIVE",
+        mustChangePassword: false,
+      },
+    });
+
+    // Assign roles
+    if (roleKeys && roleKeys.length > 0) {
+      const roles = await prisma.role.findMany({
+        where: { key: { in: roleKeys } },
+      });
+      for (const role of roles) {
+        await prisma.userRole.create({
+          data: { userId: user.id, roleId: role.id },
+        });
+      }
+    } else {
+      // Default: assign viewer role
+      const viewerRole = await prisma.role.findUnique({ where: { key: "viewer" } });
+      if (viewerRole) {
+        await prisma.userRole.create({
+          data: { userId: user.id, roleId: viewerRole.id },
+        });
+      }
+    }
+
+    // Audit log
+    auditUserAction(session.userId, "user.create", { targetUsername: username, roles: roleKeys });
+
+    return NextResponse.json({ success: true, userId: user.id });
+  } catch (error) {
+    console.error("[UserAPI] Create error:", error);
+    return NextResponse.json({ error: "创建用户失败" }, { status: 500 });
+  }
+}
+
+/** PATCH: Update user (status, roles, password reset) */
+export async function PATCH(request: Request) {
+  const session = await requireSession();
+
+  if (!sessionHasPermission(session, "user:manage")) {
+    return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+  }
+
+  try {
+    const body = await request.json();
+    const { userId, action: userAction, roleKeys, newPassword } = body as {
+      userId: string;
+      action?: "disable" | "enable" | "reset_password";
+      roleKeys?: string[];
+      newPassword?: string;
+    };
+
+    if (!userId) {
+      return NextResponse.json({ error: "缺少用户ID" }, { status: 400 });
+    }
+
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) {
+      return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+    }
+
+    // Don't allow disabling yourself
+    if (userId === session.userId && userAction === "disable") {
+      return NextResponse.json({ error: "不能禁用自己" }, { status: 400 });
+    }
+
+    if (userAction === "disable") {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { status: "DISABLED" },
+      });
+      auditUserAction(session.userId, "user.disable", { targetUsername: targetUser.username });
+    } else if (userAction === "enable") {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { status: "ACTIVE" },
+      });
+      auditUserAction(session.userId, "user.enable", { targetUsername: targetUser.username });
+    } else if (userAction === "reset_password" && newPassword) {
+      const passwordHash = await hashPassword(newPassword);
+      await prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash, mustChangePassword: true, status: "PENDING_PASSWORD_RESET" },
+      });
+      auditUserAction(session.userId, "user.password_reset", { targetUsername: targetUser.username }, "WARNING");
+    }
+
+    // Update roles if provided
+    if (roleKeys) {
+      await prisma.userRole.deleteMany({ where: { userId } });
+      const roles = await prisma.role.findMany({
+        where: { key: { in: roleKeys } },
+      });
+      for (const role of roles) {
+        await prisma.userRole.create({
+          data: { userId, roleId: role.id },
+        });
+      }
+      auditUserAction(session.userId, "user.role_update", { targetUsername: targetUser.username, roles: roleKeys });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("[UserAPI] Update error:", error);
+    return NextResponse.json({ error: "更新用户失败" }, { status: 500 });
+  }
+}
