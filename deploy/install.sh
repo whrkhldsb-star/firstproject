@@ -108,7 +108,12 @@ prepare_app_user() {
 
 sync_source() {
   log "Syncing application to ${APP_DIR}"
-  if [ -n "${REPO_URL}" ]; then
+  local source_real app_real
+  source_real="$(cd "${SOURCE_DIR}" && pwd -P)"
+  app_real="$(cd "${APP_DIR}" 2>/dev/null && pwd -P || true)"
+  if [ -n "${app_real}" ] && [ "${source_real}" = "${app_real}" ]; then
+    warn "SOURCE_DIR and APP_DIR are the same (${APP_DIR}); skipping source sync"
+  elif [ -n "${REPO_URL}" ]; then
     if [ -d "${APP_DIR}/.git" ]; then
       git -C "${APP_DIR}" fetch --all --prune
       git -C "${APP_DIR}" pull --ff-only
@@ -117,9 +122,16 @@ sync_source() {
       git clone "${REPO_URL}" "${APP_DIR}"
     fi
   else
-    rsync -a --delete \
-      --exclude .git --exclude node_modules --exclude .next --exclude backups --exclude storage --exclude tmp --exclude uploads --exclude downloads --exclude logs --exclude .env.local \
-      "${SOURCE_DIR}/" "${APP_DIR}/"
+    if have_cmd rsync; then
+      rsync -a --delete \
+        --exclude .git --exclude node_modules --exclude .next --exclude backups --exclude storage --exclude tmp --exclude uploads --exclude downloads --exclude logs --exclude .env.local \
+        "${SOURCE_DIR}/" "${APP_DIR}/"
+    else
+      warn "rsync not found; falling back to tar-based source sync"
+      (cd "${SOURCE_DIR}" && tar \
+        --exclude ./.git --exclude ./node_modules --exclude ./.next --exclude ./backups --exclude ./storage --exclude ./tmp --exclude ./uploads --exclude ./downloads --exclude ./logs --exclude ./.env.local \
+        -cf - .) | (cd "${APP_DIR}" && tar -xf -)
+    fi
   fi
   mkdir -p \
     "${APP_DIR}/storage" \
