@@ -295,6 +295,13 @@ describe("deploy/install.sh", () => {
       await rm(appDir, { force: true, recursive: true });
     }
   });
+
+  it("defaults to root for in-place deployments under /root unless APP_USER is explicit", async () => {
+    const script = await readFile(path.resolve(__dirname, "../install.sh"), "utf8");
+    expect(script).toContain("APP_USER_EXPLICIT");
+    expect(script).toContain("/root|/root/*");
+    expect(script).toContain('APP_USER="root"');
+  });
 });
 
 

@@ -14,7 +14,19 @@ APP_SLUG="${APP_SLUG:-$(slugify "${APP_NAME}")}"
 SITE_NAME="${SITE_NAME:-${APP_NAME}}"
 SERVICE_PREFIX="${SERVICE_PREFIX:-${APP_SLUG}}"
 APP_DIR="${APP_DIR:-/opt/${APP_SLUG}}"
+APP_USER_EXPLICIT="${APP_USER+x}"
 APP_USER="${APP_USER:-${APP_SLUG}}"
+if [ -z "${APP_USER_EXPLICIT}" ]; then
+  case "${APP_DIR}" in
+    /root|/root/*)
+      # System users cannot traverse /root (0700 on most hosts). When deploying in
+      # place under /root, default to root so systemd can chdir without weakening
+      # /root permissions. Fresh portable installs still default to /opt/<slug>
+      # with an isolated system user.
+      APP_USER="root"
+      ;;
+  esac
+fi
 DOMAIN="${DOMAIN:-}"
 NODE_VERSION_MAJOR="${NODE_VERSION_MAJOR:-22}"
 NEXT_HOST="${NEXT_HOST:-127.0.0.1}"
