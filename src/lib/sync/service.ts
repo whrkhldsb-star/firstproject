@@ -52,7 +52,7 @@ function safeFileStem(value: string): string {
 }
 
 export function getSyncTempKeyPath(jobId: string, purpose: "rsync" | "tar"): string {
-	return `/tmp/whrkhldsb-sync-${purpose}-${safeFileStem(jobId)}`;
+	return `/tmp/app-sync-${purpose}-${safeFileStem(jobId)}`;
 }
 
 function assertSafeSshUsername(username: string): void {

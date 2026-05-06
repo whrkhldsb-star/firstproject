@@ -29,8 +29,8 @@ export function buildDirectDownloadCommand({
   fileName,
 }: DirectDownloadCommandInput): string {
   const safeTaskId = safeTaskFileStem(taskId);
-  const pidFile = `/tmp/whrkhldsb-dl-${safeTaskId}.pid`;
-  const logFile = `/tmp/whrkhldsb-dl-${safeTaskId}.log`;
+const pidFile = `/tmp/app-dl-${safeTaskId}.pid`;
+	const logFile = `/tmp/app-dl-${safeTaskId}.log`;
   const exitFile = `${pidFile}.exit`;
   const outputPath = fileName ? toRemoteChildPath(targetPath, fileName) : "";
 
@@ -71,5 +71,5 @@ export function buildDirectDownloadCommand({
 
 export function getDirectDownloadLogCommand(taskId: string): string {
   const safeTaskId = safeTaskFileStem(taskId);
-  return `tail -5 -- ${shellQuote(`/tmp/whrkhldsb-dl-${safeTaskId}.log`)} 2>/dev/null`;
+  return `tail -5 -- ${shellQuote(`/tmp/app-dl-${safeTaskId}.log`)} 2>/dev/null`;
 }

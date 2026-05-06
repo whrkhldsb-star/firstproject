@@ -7,25 +7,22 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/require-session";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
+import { buildContentDisposition } from "@/lib/http/content-disposition";
 import { assertStorageAccess } from "@/lib/storage/access-control";
 import { normalizeStorageRelativePath } from "@/lib/storage/path-utils";
 
 type UploadLike = {
-  arrayBuffer(): Promise<ArrayBuffer>;
-  name?: string;
-  type?: string;
-  size?: number;
+ arrayBuffer(): Promise<ArrayBuffer>;
+ name?: string;
+ type?: string;
+ size?: number;
 };
 
 function isUploadLike(value: unknown): value is UploadLike {
-  return !!value && typeof value === "object" && typeof (value as UploadLike).arrayBuffer === "function";
+ return !!value && typeof value === "object" && typeof (value as UploadLike).arrayBuffer === "function";
 }
 
 export const dynamic = "force-dynamic";
-
-function toSafeDownloadName(fileName: string) {
-  return fileName.replace(/[\r\n"]/g, "_");
-}
 
 function resolveManagedLocalPath(basePath: string, relativePath: string) {
   const normalizedPath = normalizeStorageRelativePath(relativePath);
@@ -139,15 +136,16 @@ export async function GET(request: Request) {
     headers.set("content-type", guessContentType(entry.name, entry.mimeType));
     headers.set("content-length", String(fileStat.size));
     headers.set("cache-control", "private, no-store");
-    headers.set(
-      "content-disposition",
-      `${download ? "attachment" : "inline"}; filename="${toSafeDownloadName(entry.name)}"`,
-    );
+ headers.set(
+ "content-disposition",
+ buildContentDisposition(download ? "attachment" : "inline", entry.name),
+ );
 
-    return new Response(body, { status: 200, headers });
-  } catch {
-    return NextResponse.json({ error: "文件不存在或暂时无法读取" }, { status: 404 });
-  }
+ return new Response(body, { status: 200, headers });
+ } catch (downloadError) {
+ console.error("[/api/storage/local] download error:", downloadError);
+ return NextResponse.json({ error: "文件不存在或暂时无法读取" }, { status: 404 });
+ }
 }
 
 export async function POST(request: Request) {

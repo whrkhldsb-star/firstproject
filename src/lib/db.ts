@@ -13,35 +13,35 @@ export function isDatabaseUnavailableError(error: unknown) {
 }
 
 declare global {
-  var __whrkhldsbPrisma__: PrismaClient | undefined;
-  var __whrkhldsbPrismaAdapter__: PrismaPg | undefined;
+	var __appPrisma__: PrismaClient | undefined;
+	var __appPrismaAdapter__: PrismaPg | undefined;
 }
 
 function getPrismaAdapter() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL is required to initialize Prisma.");
-  }
+	if (!process.env.DATABASE_URL) {
+		throw new Error("DATABASE_URL is required to initialize Prisma.");
+	}
 
-  if (!global.__whrkhldsbPrismaAdapter__) {
-    global.__whrkhldsbPrismaAdapter__ = new PrismaPg(process.env.DATABASE_URL);
-  }
+	if (!global.__appPrismaAdapter__) {
+		global.__appPrismaAdapter__ = new PrismaPg(process.env.DATABASE_URL);
+	}
 
-  return global.__whrkhldsbPrismaAdapter__;
+	return global.__appPrismaAdapter__;
 }
 
 function createPrismaClient() {
-  return new PrismaClient({
-    adapter: getPrismaAdapter(),
-    log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-  });
+	return new PrismaClient({
+		adapter: getPrismaAdapter(),
+		log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
+	});
 }
 
 function getPrismaClient() {
-  if (!global.__whrkhldsbPrisma__) {
-    global.__whrkhldsbPrisma__ = createPrismaClient();
-  }
+	if (!global.__appPrisma__) {
+		global.__appPrisma__ = createPrismaClient();
+	}
 
-  return global.__whrkhldsbPrisma__;
+	return global.__appPrisma__;
 }
 
 export const prisma = new Proxy({} as PrismaClient, {

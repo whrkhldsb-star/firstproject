@@ -57,7 +57,7 @@ async function executeCommandOverSshWithKey(input: {
  privateKey: string;
  command: string;
 }): Promise<SshExecutionResult> {
-  const tempDir = await mkdtemp(join(tmpdir(), "whrkhldsb-ssh-"));
+  const tempDir = await mkdtemp(join(tmpdir(), "app-ssh-"));
   const keyPath = join(tempDir, "id_key");
 
   try {

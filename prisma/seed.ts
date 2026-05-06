@@ -12,8 +12,9 @@ import { hashPassword } from "../src/lib/auth/password";
 
 const PERMISSION_LABELS: Record<string, { name: string; description: string }> = {
   "announcement:manage": { name: "管理公告", description: "允许发布、置顶和下线站内公告" },
-  "api-token:manage": { name: "管理 API Token", description: "允许创建和撤销个人 API Token" },
-  "deploy:export": { name: "导出部署包", description: "允许生成不含敏感值的部署迁移模板包" },
+ "api-token:manage": { name: "管理 API Token", description: "允许创建和撤销个人 API Token" },
+ "ai:manage": { name: "管理 AI 助手", description: "允许配置 AI 提供商、创建对话与多模态交互" },
+ "deploy:export":{ name: "导出部署包", description: "允许生成不含敏感值的部署迁移模板包" },
   "media:manage": { name: "管理媒体库", description: "允许扫描、标记和浏览图片视频媒体资源" },
   "snippet:manage": { name: "管理代码片段", description: "允许创建、搜索和维护在线代码片段" },
   "ticket:manage": { name: "管理工单", description: "允许创建、回复和流转站内请求工单" },

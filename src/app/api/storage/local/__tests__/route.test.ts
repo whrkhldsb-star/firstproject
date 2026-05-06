@@ -149,18 +149,41 @@ describe("/api/storage/local", () => {
     expect(payload.size).toBeGreaterThan(0);
   });
 
-  it("rejects unsafe upload relativePath before storage node lookup or writes", async () => {
-    const response = await POST(new Request("https://example.com/api/storage/local", {
-      method: "POST",
-      body: uploadForm("/etc/passwd"),
-    }));
+ it("rejects unsafe upload relativePath before storage node lookup or writes", async () => {
+ const response = await POST(new Request("https://example.com/api/storage/local", {
+ method: "POST",
+ body: uploadForm("/etc/passwd"),
+ }));
 
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringMatching(/路径/) });
-    expect(prismaMock.storageNode.findUnique).not.toHaveBeenCalled();
-    expect(assertStorageAccessMock).not.toHaveBeenCalled();
-    expect(mkdirMock).not.toHaveBeenCalled();
-    expect(writeFileMock).not.toHaveBeenCalled();
-    expect(prismaMock.fileEntry.create).not.toHaveBeenCalled();
-  });
+ expect(response.status).toBe(400);
+ await expect(response.json()).resolves.toMatchObject({ error: expect.stringMatching(/路径/) });
+ expect(prismaMock.storageNode.findUnique).not.toHaveBeenCalled();
+ expect(assertStorageAccessMock).not.toHaveBeenCalled();
+ expect(mkdirMock).not.toHaveBeenCalled();
+ expect(writeFileMock).not.toHaveBeenCalled();
+ expect(prismaMock.fileEntry.create).not.toHaveBeenCalled();
+ });
+
+ it("returns 200 with RFC 5987 content-disposition for Chinese filename downloads", async () => {
+ prismaMock.fileEntry.findFirst.mockResolvedValueOnce({
+ id: "file_cn",
+ name: "新建文档.docx",
+ relativePath: "新建文档.docx",
+ entryType: "FILE",
+ mimeType: null,
+ storageNode: {
+ id: "node_1",
+ name: "本机存储",
+ basePath: "/tmp/storage",
+ driver: "LOCAL",
+ },
+ });
+
+ const response = await GET(new Request("https://example.com/api/storage/local?path=%E6%96%B0%E5%BB%BA%E6%96%87%E6%A1%A3.docx"));
+
+ expect(response.status).toBe(200);
+ const cd = response.headers.get("content-disposition");
+ expect(cd).toContain("filename*=UTF-8''");
+ expect(cd).toContain(encodeURIComponent("新建文档.docx"));
+ });
 });

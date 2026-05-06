@@ -116,7 +116,7 @@ describe("FileListClient", () => {
   });
 
   it("renders thumbnail background only for files and never as a folder overlay", () => {
-    window.localStorage.setItem("whrkhldsb-file-view-mode", "grid");
+    window.localStorage.setItem("app-file-view-mode", "grid");
 
     const { container } = renderFileList();
 
@@ -134,7 +134,7 @@ describe("FileListClient", () => {
     const gridButton = screen.getByRole("button", { name: "图标视图" });
     fireEvent.click(gridButton);
 
-    expect(window.localStorage.getItem("whrkhldsb-file-view-mode")).toBe("grid");
+    expect(window.localStorage.getItem("app-file-view-mode")).toBe("grid");
     expect(gridButton).toHaveAttribute("aria-pressed", "true");
 
     renderFileList();

@@ -33,6 +33,7 @@ const IconCode = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="cu
 const IconTicket = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 5H9a2 2 0 00-2 2v12l5-3 5 3V7a2 2 0 00-2-2z" /></svg>;
 const IconStatus = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12h4l3 8 4-16 3 8h4" /></svg>;
 const IconDeploy = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>;
+const IconAi = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.09-.75.202-.25.112-.499.268-.75.468M9.75 3.104c.251.023.501.09.75.202.25.112.499.268.75.468M5 14.5l-1.43 1.43a2.25 2.25 0 01-3.182 0l-.03-.03a2.25 2.25 0 010-3.182L5 14.5zm0 0l6.25-6.25" /></svg>;
 
 const navItems = [
 	{ href: "/", label: "仪表盘", icon: <IconDashboard /> },
@@ -46,8 +47,9 @@ const navItems = [
 	{ href: "/templates", label: "命令模板", icon: <IconTemplate /> },
 	{ href: "/deployments", label: "应用部署", icon: <IconDeploy /> },
 	{ href: "/snippets", label: "代码片段", icon: <IconCode /> },
-	{ href: "/media", label: "媒体库", icon: <IconMovie /> },
-	{ href: "/announcements", label: "站内公告", icon: <IconBell /> },
+ { href: "/media", label: "媒体库", icon: <IconMovie /> },
+ { href: "/ai", label: "AI 助手", icon: <IconAi /> },
+ { href: "/announcements", label: "站内公告", icon: <IconBell /> },
 	{ href: "/tickets", label: "工单请求", icon: <IconTicket /> },
 	{ href: "/requests", label: "审批中心", icon: <IconCheck /> },
 	{ href: "/scheduled-tasks", label: "定时任务", icon: <IconClock /> },
@@ -67,6 +69,8 @@ const externalLinks = [
 	{ href: "/files-proxy/", label: "AList 云盘", icon: <IconCloud /> },
 	{ href: "/web/index.html", label: "Emby 影视", icon: <IconMovie /> },
 ];
+
+import { getAppName, getPublicLabel } from "@/lib/branding";
 
 export function AppSidebar({ username }: { username?: string }) {
 	const pathname = usePathname();
@@ -90,8 +94,8 @@ export function AppSidebar({ username }: { username?: string }) {
 						<svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20"><path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.05 4.646 12.2a1 1 0 00.476 1.006l4.5 2.706a1 1 0 001.056 0l4.5-2.706a1 1 0 00.476-1.006L14.95 8.05l2.644-1.228a1 1 0 000-1.84l-7-3zM10 4.08l5.106 2.19L10 8.49 4.894 6.27 10 4.08z" /></svg>
 					</div>
 					<div>
-						<div className="text-base font-semibold tracking-tight text-white">WHRKHLDsb</div>
-						<p className="text-[10px] text-slate-500 leading-none">VPS 管理与分布式云盘</p>
+						<div className="text-base font-semibold tracking-tight text-white">{getAppName()}</div>
+						<p className="text-[10px] text-slate-500 leading-none">{getPublicLabel()}</p>
 					</div>
 				</div>
 			</div>

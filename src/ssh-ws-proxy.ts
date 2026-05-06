@@ -13,33 +13,25 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { canUseSshTerminal } from "./lib/auth/ssh-access";
+import { getAppSlug } from "./lib/branding";
 
 // ── Config ──────────────────────────────────────────────────────────
 
 export function resolveSshWsListenConfig(env: Partial<NodeJS.ProcessEnv> = process.env) {
-  const host = env.SSH_WS_HOST?.trim() || "127.0.0.1";
-  const portText = env.SSH_WS_PORT?.trim() || "3001";
-  const port = Number(portText);
+	const host = env.SSH_WS_HOST?.trim() || "127.0.0.1";
+	const portText = env.SSH_WS_PORT?.trim() || "3001";
+	const port = Number(portText);
 
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("SSH_WS_PORT must be a valid TCP port");
-  }
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		throw new Error("SSH_WS_PORT must be a valid TCP port");
+	}
 
-  return { host, port };
+	return { host, port };
 }
 
 const { host: HOST, port: PORT } = resolveSshWsListenConfig();
 
-function slugifyAppName(value: string) {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "whrkhldsb";
-}
-
-const APP_SLUG = slugifyAppName(process.env.APP_SLUG || process.env.APP_NAME || "whrkhldsb");
+const APP_SLUG = getAppSlug();
 const SESSION_ISSUER = process.env.AUTH_SESSION_ISSUER?.trim() || APP_SLUG;
 const SESSION_AUDIENCE = process.env.AUTH_SESSION_AUDIENCE?.trim() || `${APP_SLUG}-console`;
 

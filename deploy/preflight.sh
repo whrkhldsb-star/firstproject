@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-APP_NAME="${APP_NAME:-whrkhldsb}"
+APP_NAME="${APP_NAME:-${APP_SLUG:-app}}"
 APP_DIR="${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 ENV_FILE="${ENV_FILE:-${APP_DIR}/.env.local}"
 NEXT_HOST="${NEXT_HOST:-127.0.0.1}"

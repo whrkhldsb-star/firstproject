@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-APP_NAME="${APP_NAME:-whrkhldsb}"
+APP_NAME="${APP_NAME:-${APP_SLUG:-app}}"
 ENV_FILE="${ENV_FILE:-${APP_DIR}/.env.local}"
 BACKUP_DIR="${BACKUP_DIR:-${APP_DIR}/backups}"
 SKIP_PRE_BACKUP="${SKIP_PRE_BACKUP:-0}"

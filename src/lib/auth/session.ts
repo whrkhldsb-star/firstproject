@@ -1,20 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createLogger } from "@/lib/logging";
+import { getAppSlug } from "@/lib/branding";
 import type { RoleKey } from "./rbac";
 
 const logger = createLogger("auth:session");
 
-function slugifyAppName(value: string) {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "whrkhldsb";
-}
-
-const APP_SLUG = slugifyAppName(process.env.APP_SLUG || process.env.APP_NAME || "whrkhldsb");
+const APP_SLUG = getAppSlug();
 const SESSION_COOKIE_NAME = process.env.AUTH_SESSION_COOKIE_NAME?.trim() || `${APP_SLUG}_session`;
 const SESSION_ISSUER = process.env.AUTH_SESSION_ISSUER?.trim() || APP_SLUG;
 const SESSION_AUDIENCE = process.env.AUTH_SESSION_AUDIENCE?.trim() || `${APP_SLUG}-console`;

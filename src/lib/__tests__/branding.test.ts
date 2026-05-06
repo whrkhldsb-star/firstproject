@@ -1,0 +1,38 @@
+import { describe, expect, it } from "vitest";
+
+import { getAppMetadataTitle, getAppName, getAppSlug, getPublicLabel, getSiteName } from "../branding";
+
+describe("branding helpers", () => {
+  it("uses stable defaults when env is empty", () => {
+    expect(getAppName({} as NodeJS.ProcessEnv)).toBe("whrkhldsb");
+    expect(getAppSlug({} as NodeJS.ProcessEnv)).toBe("whrkhldsb");
+    expect(getSiteName({} as NodeJS.ProcessEnv)).toBe("VPS 统一管控平台");
+    expect(getPublicLabel({} as NodeJS.ProcessEnv)).toBe("VPS 管理与分布式云盘");
+    expect(getAppMetadataTitle({} as NodeJS.ProcessEnv)).toBe("VPS 统一管控平台 | VPS 管理与分布式云盘");
+  });
+
+  it("falls back to the generic public label when env uses app branding tokens", () => {
+    const env = {
+      APP_NAME: "WHRKHLDsb",
+      APP_SLUG: "whrkhldsb",
+      NEXT_PUBLIC_APP_PUBLIC_LABEL: "WHRKHLDsb",
+    } as NodeJS.ProcessEnv;
+
+    expect(getPublicLabel(env)).toBe("VPS 管理与分布式云盘");
+  });
+
+  it("respects env overrides and normalizes the slug", () => {
+    const env = {
+      APP_NAME: "My App",
+      APP_SLUG: "My App!!",
+      SITE_NAME: "云盘中心",
+      NEXT_PUBLIC_APP_PUBLIC_LABEL: "统一入口",
+    } as NodeJS.ProcessEnv;
+
+    expect(getAppName(env)).toBe("My App");
+    expect(getAppSlug(env)).toBe("my-app");
+    expect(getSiteName(env)).toBe("云盘中心");
+    expect(getPublicLabel(env)).toBe("统一入口");
+    expect(getAppMetadataTitle(env)).toBe("云盘中心 | VPS 管理与分布式云盘");
+  });
+});

@@ -38,6 +38,10 @@ ENV_TEMPLATE="${ENV_TEMPLATE:-${APP_DIR}/deploy/env.production.example}"
 SKIP_PACKAGES="${SKIP_PACKAGES:-0}"
 SKIP_CADDY="${SKIP_CADDY:-0}"
 SKIP_DB_SETUP="${SKIP_DB_SETUP:-0}"
+PG_AUTO_SETUP="${PG_AUTO_SETUP:-1}"
+PG_DB_NAME="${PG_DB_NAME:-${APP_SLUG}}"
+PG_DB_USER="${PG_DB_USER:-${APP_SLUG}}"
+PG_DB_PASSWORD="${PG_DB_PASSWORD:-}"
 SKIP_RESTART="${SKIP_RESTART:-0}"
 REPO_URL="${REPO_URL:-}"
 SOURCE_DIR="${SOURCE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -94,21 +98,76 @@ is_placeholder_value() {
 }
 
 install_packages() {
-  [ "${SKIP_PACKAGES}" = "1" ] && { warn "Skipping OS package installation"; return; }
-  log "Installing required OS packages"
-  apt-get update
-  apt-get install -y ca-certificates curl gnupg git openssh-client sshpass rsync postgresql-client build-essential
-  if ! have_cmd node || [ "$(node -p 'process.versions.node.split(`.`)[0]' 2>/dev/null || echo 0)" -lt "${NODE_VERSION_MAJOR}" ]; then
-    curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION_MAJOR}.x | bash -
-    apt-get install -y nodejs
-  fi
-  if [ "${SKIP_CADDY}" != "1" ] && ! have_cmd caddy; then
-    apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
-    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
-    apt-get update
-    apt-get install -y caddy
-  fi
+	[ "${SKIP_PACKAGES}" = "1" ] && { warn "Skipping OS package installation"; return; }
+
+	# ── Phase 1: Check what's already installed ──────────────────────
+	local missing_pkgs=()
+	local need_apt_update=0
+
+	log "Checking system dependencies..."
+
+	# Core tools that come from apt
+	for pkg_cmd in "ca-certificates:ca-certificates" "curl:curl" "gnupg:gnupg" "git:git" "openssh-client:ssh" "sshpass:sshpass" "rsync:rsync" "build-essential:make"; do
+		local cmd="${pkg_cmd%%:*}"
+		local pkg="${pkg_cmd##*:}"
+		if have_cmd "${cmd}"; then
+			log "  ✓ ${cmd} already installed"
+		else
+			missing_pkgs+=("${pkg}")
+			log "  ✗ ${cmd} missing — will install ${pkg}"
+		fi
+	done
+
+	# Install missing apt packages in one batch
+	if [ "${#missing_pkgs[@]}" -gt 0 ]; then
+		log "Installing ${#missing_pkgs[@]} missing packages: ${missing_pkgs[*]}"
+		apt-get update
+		apt-get install -y "${missing_pkgs[@]}"
+	else
+		log "All core apt packages satisfied"
+	fi
+
+	# ── Phase 2: Node.js ─────────────────────────────────────────────
+	local node_major=0
+	if have_cmd node; then
+		node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+	fi
+	if [ "${node_major}" -ge "${NODE_VERSION_MAJOR}" ] 2>/dev/null; then
+		log "  ✓ Node.js ${node_major} already installed (≥ ${NODE_VERSION_MAJOR})"
+	else
+		log "  ✗ Node.js missing or too old (found v${node_major}, need ≥ v${NODE_VERSION_MAJOR}) — installing"
+		curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION_MAJOR}.x" | bash -
+		apt-get install -y nodejs
+		log "  ✓ Node.js $(node -v) installed"
+	fi
+
+	# ── Phase 3: Caddy ───────────────────────────────────────────────
+	if [ "${SKIP_CADDY}" = "1" ]; then
+		log "  ○ Caddy: skipped (SKIP_CADDY=1)"
+	elif have_cmd caddy; then
+		log "  ✓ Caddy already installed: $(caddy version 2>/dev/null || echo 'present')"
+	else
+		log "  ✗ Caddy missing — installing"
+		apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+		curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+		curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+		apt-get update
+		apt-get install -y caddy
+		log "  ✓ Caddy installed: $(caddy version 2>/dev/null || echo 'done')"
+	fi
+
+	# ── Phase 4: PostgreSQL ───────────────────────────────────────────
+	if [ "${SKIP_DB_SETUP}" = "1" ]; then
+		log "  ○ PostgreSQL: skipped (SKIP_DB_SETUP=1)"
+	elif have_cmd psql; then
+		local pg_ver
+		pg_ver="$(psql --version 2>/dev/null | head -1 | grep -oP '\d+\.\d+' || echo 'present')"
+		log "  ✓ PostgreSQL already installed: ${pg_ver}"
+	else
+		log "  ✗ PostgreSQL missing — installing"
+		apt-get install -y postgresql postgresql-contrib
+		log "  ✓ PostgreSQL installed: $(psql --version 2>/dev/null | head -1)"
+	fi
 }
 
 prepare_app_user() {
@@ -230,6 +289,53 @@ create_runtime_dirs() {
     "${BACKUP_DIR:-/var/backups/${APP_SLUG}}"
 }
 
+setup_postgres() {
+	[ "${PG_AUTO_SETUP}" = "1" ] || { warn "Skipping PostgreSQL auto-setup"; return; }
+	[ "${SKIP_DB_SETUP}" = "1" ] && { warn "Skipping PostgreSQL setup (SKIP_DB_SETUP=1)"; return; }
+	have_cmd psql || { warn "psql not found; skipping PostgreSQL auto-setup"; return; }
+
+	# Ensure PostgreSQL is running
+	if ! systemctl is-active --quiet postgresql 2>/dev/null; then
+		log "Starting PostgreSQL service"
+		systemctl start postgresql
+		systemctl enable postgresql
+	fi
+
+	# Create database and user if they do not exist
+	local pg_user_exists pg_db_exists
+	pg_user_exists="$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${PG_DB_USER}'" 2>/dev/null || true)"
+	if [ "${pg_user_exists}" != "1" ]; then
+		if [ -z "${PG_DB_PASSWORD}" ]; then
+			PG_DB_PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
+			warn "Generated random PostgreSQL password for ${PG_DB_USER}; saved to ${ENV_FILE}"
+		fi
+		log "Creating PostgreSQL user ${PG_DB_USER}"
+		sudo -u postgres psql -c "CREATE USER ${PG_DB_USER} WITH ENCRYPTED PASSWORD '${PG_DB_PASSWORD}';" 2>/dev/null || warn "Failed to create PostgreSQL user (may already exist)"
+	else
+		# If user exists but we have a password, try to update it
+		if [ -n "${PG_DB_PASSWORD}" ]; then
+			sudo -u postgres psql -c "ALTER USER ${PG_DB_USER} WITH ENCRYPTED PASSWORD '${PG_DB_PASSWORD}';" 2>/dev/null || true
+		fi
+	fi
+
+	pg_db_exists="$(sudo -u postgres psql -lqtAc "SELECT 1 FROM pg_database WHERE datname='${PG_DB_NAME}'" 2>/dev/null || true)"
+	if [ "${pg_db_exists}" != "1" ]; then
+		log "Creating PostgreSQL database ${PG_DB_NAME}"
+		sudo -u postgres psql -c "CREATE DATABASE ${PG_DB_NAME} OWNER ${PG_DB_USER};" 2>/dev/null || warn "Failed to create PostgreSQL database (may already exist)"
+	fi
+
+	# Update DATABASE_URL in .env.local if it is still a placeholder
+	local generated_url="postgresql://${PG_DB_USER}:${PG_DB_PASSWORD}@127.0.0.1:5432/${PG_DB_NAME}"
+	local current_url
+	current_url="$(grep '^DATABASE_URL=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+	if is_placeholder_value "${current_url}" || [ -z "${current_url}" ]; then
+		log "Setting DATABASE_URL in ${ENV_FILE}"
+		local escaped_url
+		escaped_url="$(shell_escape_sed_replacement "${generated_url}")"
+		sed -i "s#^DATABASE_URL=.*#DATABASE_URL=${escaped_url}#" "${ENV_FILE}"
+	fi
+}
+
 build_app() {
   log "Installing dependencies and building application"
   cd "${APP_DIR}"
@@ -247,31 +353,34 @@ build_app() {
 }
 
 install_systemd() {
-  log "Installing systemd units"
-  local node_bin npm_bin npx_bin systemd_path
-  node_bin="$(resolve_command node)"
-  npm_bin="$(resolve_command npm)"
-  npx_bin="$(resolve_command npx)"
-  systemd_path="$(build_systemd_path "${node_bin}" "${npm_bin}" "${npx_bin}")"
-  install -m 0644 "${APP_DIR}/deploy/systemd/whrkhldsb-next.service.example" "/etc/systemd/system/${SERVICE_PREFIX}-next.service"
-  install -m 0644 "${APP_DIR}/deploy/systemd/whrkhldsb-ssh-ws.service.example" "/etc/systemd/system/${SERVICE_PREFIX}-ssh-ws.service"
-  local escaped_site_name
-  escaped_site_name="$(shell_escape_sed_replacement "${SITE_NAME}")"
-  sed -i \
-    -e "s#Description=.*Next.js.*#Description=${escaped_site_name} Next.js application#" \
-    -e "s#Description=.*SSH WebSocket.*#Description=${escaped_site_name} SSH WebSocket proxy#" \
-    -e "s#WorkingDirectory=.*#WorkingDirectory=${APP_DIR}#" \
-    -e "s#EnvironmentFile=.*#EnvironmentFile=${ENV_FILE}#" \
-    -e "s#Environment=PATH=.*#Environment=PATH=${systemd_path}#" \
-    -e "s#ExecStart=.*npm run start#ExecStart=${npm_bin} run start#" \
-    -e "s#ExecStart=.*npx tsx src/ssh-ws-proxy.ts#ExecStart=${npx_bin} tsx src/ssh-ws-proxy.ts#" \
-    -e "s#User=.*#User=${APP_USER}#" \
-    -e "s#Group=.*#Group=${APP_USER}#" \
-    "/etc/systemd/system/${SERVICE_PREFIX}-next.service" "/etc/systemd/system/${SERVICE_PREFIX}-ssh-ws.service"
-  systemctl daemon-reload
-  systemctl enable "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service"
+	log "Installing systemd units"
+	local node_bin npm_bin npx_bin systemd_path
+	node_bin="$(resolve_command node)"
+	npm_bin="$(resolve_command npm)"
+	npx_bin="$(resolve_command npx)"
+	systemd_path="$(build_systemd_path "${node_bin}" "${npm_bin}" "${npx_bin}")"
+	local svc
+	for svc in next ssh-ws; do
+		local src="${APP_DIR}/deploy/systemd/${APP_SLUG}-${svc}.service.example"
+		if [ ! -f "${src}" ]; then
+			src="${APP_DIR}/deploy/systemd/whrkhldsb-${svc}.service.example"
+		fi
+		[ -f "${src}" ] || fail "Systemd template not found: ${src}"
+		local dst="/etc/systemd/system/${SERVICE_PREFIX}-${svc}.service"
+		sed \
+			-e "s#{{SITE_NAME}}#${SITE_NAME}#g" \
+			-e "s#{{APP_DIR}}#${APP_DIR}#g" \
+			-e "s#{{ENV_FILE}}#${ENV_FILE}#g" \
+			-e "s#{{SYSTEMD_PATH}}#${systemd_path}#g" \
+			-e "s#{{NPM_BIN}}#${npm_bin}#g" \
+			-e "s#{{NPX_BIN}}#${npx_bin}#g" \
+			-e "s#{{APP_USER}}#${APP_USER}#g" \
+			"${src}" > "${dst}"
+		chmod 0644 "${dst}"
+	done
+	systemctl daemon-reload
+	systemctl enable "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service"
 }
-
 install_caddy() {
   [ "${SKIP_CADDY}" = "1" ] && { warn "Skipping Caddy setup"; return; }
   [ -n "${DOMAIN}" ] || { warn "DOMAIN is empty; skipping Caddy config"; return; }
@@ -311,6 +420,7 @@ main() {
     APP_DIR="${APP_DIR}" ENV_FILE="${ENV_FILE}" NEXT_HOST="${NEXT_HOST}" NEXT_PORT="${NEXT_PORT}" SSH_WS_PORT="${SSH_WS_PORT}" "${APP_DIR}/deploy/preflight.sh"
   fi
   create_runtime_dirs
+ setup_postgres
   build_app
   install_systemd
   install_caddy

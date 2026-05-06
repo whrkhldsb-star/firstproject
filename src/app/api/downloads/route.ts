@@ -579,7 +579,7 @@ export async function DELETE(request: Request) {
             process.kill(task.pid, "SIGTERM");
           } catch {}
         }
-        const tempDir = `/tmp/whrkhldsb-relay-${taskId}`;
+        const tempDir = `/tmp/app-relay-${taskId}`;
         try {
           await fs.rm(tempDir, { recursive: true, force: true });
         } catch {}
@@ -591,7 +591,7 @@ export async function DELETE(request: Request) {
           );
           await execRemoteCommand({
             ...sshParams,
-            command: `kill ${task.pid} 2>/dev/null; rm -f -- ${shellQuote(`/tmp/whrkhldsb-dl-${task.id}.pid`)}`,
+            command: `kill ${task.pid} 2>/dev/null; rm -f -- ${shellQuote(`/tmp/app-dl-${task.id}.pid`)}`,
             timeout: 10000,
           });
         } catch {}
@@ -633,7 +633,7 @@ async function executeAria2RelayDownload(
   maxSpeedKb?: number | null,
 ) {
   void _fileName;
-  const tempDir = `/tmp/whrkhldsb-relay-${taskId}`;
+  const tempDir = `/tmp/app-relay-${taskId}`;
 
   try {
     await ensureAria2Daemon();
@@ -900,7 +900,7 @@ async function transferFileViaSsh2(
   const target = toScpTarget(server.username || "root", server.host, remoteFilePath);
 
   if (server.sshKey?.privateKey) {
-    const keyFile = path.join("/tmp", `whrkhldsb-key-${taskId}-${randomUUID()}`);
+    const keyFile = path.join("/tmp", `app-key-${taskId}-${randomUUID()}`);
     await fs.writeFile(keyFile, server.sshKey.privateKey, { mode: 0o600 });
     try {
       await execFileAsync(

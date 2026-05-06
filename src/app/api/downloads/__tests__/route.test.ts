@@ -211,7 +211,7 @@ describe("/api/downloads", () => {
 
     expect(response.status).toBe(200);
     expect(removeDownloadMock).toHaveBeenCalledWith("gid_1", true);
-    expect(rmMock).toHaveBeenCalledWith(expect.stringContaining("whrkhldsb-relay-task_relay"), { recursive: true, force: true });
+    expect(rmMock).toHaveBeenCalledWith(expect.stringContaining("/tmp/app-relay-task_relay"), { recursive: true, force: true });
     expect(prismaMock.downloadTask.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "task_relay" },
       data: expect.objectContaining({ status: "CANCELLED" }),

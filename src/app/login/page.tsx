@@ -1,3 +1,4 @@
+import { getPublicLabel, getSiteName } from "@/lib/branding";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 	const resolvedSearchParams = (await searchParams) ?? {};
 	const nextPath = resolvedSearchParams.next ?? "/";
 	const error = resolveErrorMessage(resolvedSearchParams.error);
-	const publicLabel = process.env.NEXT_PUBLIC_APP_PUBLIC_LABEL ?? "VPS 管理与分布式云盘";
+	const publicLabel = getPublicLabel();
+	const siteName = getSiteName();
 
 	return (
 		<main className="relative min-h-screen overflow-hidden bg-[#050508] text-white">
@@ -43,10 +45,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 							{publicLabel}
 						</div>
 						<h1 className="mt-6 text-5xl font-semibold tracking-[-0.05em] text-white sm:text-6xl">
-							统一管控<span className="text-cyan-400">.</span>
+							{siteName}<span className="text-cyan-400">.</span>
 						</h1>
 						<p className="mt-4 max-w-md text-base leading-7 text-white/40">
-							VPS 节点管理、命令审批执行与分布式云盘，一站掌控。
+							{publicLabel}，一站掌控。
 						</p>
 
 						<div className="mt-10 grid gap-3 sm:grid-cols-3">

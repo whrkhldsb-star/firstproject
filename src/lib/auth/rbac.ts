@@ -1,8 +1,9 @@
 export const PERMISSIONS = [
-  "announcement:manage",
-  "api-token:manage",
-  "audit:read",
-  "backup:create",
+ "announcement:manage",
+ "api-token:manage",
+ "audit:read",
+ "ai:manage",
+ "backup:create",
   "backup:read",
   "backup:restore",
   "command:approve",
@@ -47,11 +48,12 @@ export const ALL_PERMISSIONS = [...PERMISSIONS] satisfies Permission[];
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<RoleKey, Permission[]> = {
   admin: ALL_PERMISSIONS,
-  operator: [
-    "announcement:manage",
-    "api-token:manage",
-    "audit:read",
-    "backup:create",
+ operator: [
+ "announcement:manage",
+ "api-token:manage",
+ "audit:read",
+ "ai:manage",
+ "backup:create",
     "backup:read",
     "command:create",
     "command:execute",

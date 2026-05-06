@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="${APP_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/whrkhldsb}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/${APP_NAME:-${APP_SLUG:-app}}}"
 BACKUP_SCRIPT="${APP_DIR}/scripts/backup-db.sh"
 if [ ! -x "${BACKUP_SCRIPT}" ]; then
   BACKUP_SCRIPT="$(cd "${SCRIPT_DIR}/.." && pwd)/scripts/backup-db.sh"

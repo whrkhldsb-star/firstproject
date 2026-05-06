@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { SidebarLoader } from "@/components/sidebar-loader";
 import { ToastProvider } from "@/components/toast-provider";
+import { getAppMetadataTitle, getAppDescription } from "@/lib/branding";
 
 const geistSans = Geist({
 	variable: "--font-geist-sans",
@@ -16,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-	title: "whrkhldsb | VPS 管理与分布式云盘",
-	description: "统一 VPS 管理、审批执行、分布式云盘与媒体浏览平台",
+	title: getAppMetadataTitle(),
+	description: getAppDescription(),
 };
 
 export default function RootLayout({

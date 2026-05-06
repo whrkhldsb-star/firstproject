@@ -1,10 +1,11 @@
 import { writeFile, readFile, mkdir, unlink, chmod } from "fs/promises";
 import path from "path";
+import { getAppSlug } from "@/lib/branding";
 
 /* ── Aria2 RPC Configuration ──────────────────────────────── */
 
 const DEFAULT_RPC_PORT = 6800;
-const DEFAULT_RPC_SECRET = ["whrkhldsb", "default", "token"].join("_");
+const DEFAULT_RPC_SECRET = [getAppSlug(), "default", "token"].join("_");
 
 export type Aria2RuntimeConfig = {
 	rpcHost: string;
@@ -42,7 +43,7 @@ export function getAria2RuntimeConfig(env: Partial<NodeJS.ProcessEnv> = process.
 
 export function buildAria2Config(config: Aria2RuntimeConfig): string {
 	return `
-# Aria2 RPC daemon for whrkhldsb
+# Aria2 RPC daemon for app
 enable-rpc=true
 rpc-listen-all=false
 rpc-listen-port=${config.rpcPort}

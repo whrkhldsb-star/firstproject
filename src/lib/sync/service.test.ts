@@ -14,7 +14,7 @@ describe("sync service command helpers", () => {
   });
 
   it("uses deterministic safe temporary key paths without exposing raw job ids", () => {
-    expect(getSyncTempKeyPath("job/../../bad id", "rsync")).toBe("/tmp/whrkhldsb-sync-rsync-job_______bad_id");
+    expect(getSyncTempKeyPath("job/../../bad id", "rsync")).toBe("/tmp/app-sync-rsync-job_______bad_id");
   });
 
   it("builds rsync commands that use a pre-written key file and clean it up", () => {
@@ -25,7 +25,7 @@ describe("sync service command helpers", () => {
       targetUser: "deploy",
       targetHost: "2001:db8::10",
       targetPort: 2222,
-      keyPath: "/tmp/whrkhldsb-sync-rsync-job_1",
+      keyPath: "/tmp/app-sync-rsync-job_1",
     });
 
     expect(command).toContain("trap 'rm -f -- ");
@@ -42,7 +42,7 @@ describe("sync service command helpers", () => {
       targetUser: "root",
       targetHost: "example.com",
       targetPort: 22,
-      keyPath: "/tmp/whrkhldsb-sync-tar-job_2",
+      keyPath: "/tmp/app-sync-tar-job_2",
       deleteOrphans: true,
     });
 

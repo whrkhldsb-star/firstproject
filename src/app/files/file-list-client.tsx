@@ -196,7 +196,7 @@ export function FileListClient({
   );
 
 /* ── view mode with localStorage persistence ────────────────────── */
-	const VIEW_MODE_KEY = "whrkhldsb-file-view-mode";
+	const VIEW_MODE_KEY = "app-file-view-mode";
 	const [viewMode, setViewMode] = useState<ViewMode>(() => {
 		try {
 			const saved = localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null;

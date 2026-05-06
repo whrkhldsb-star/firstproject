@@ -9,8 +9,10 @@ const DANGEROUS_ENV_FLAGS = [
   "SEED_DEMO_DATA",
 ];
 
+import { getAppName } from "@/lib/branding";
+
 function sanitizeAppName(value?: string) {
-  const appName = (value ?? "whrkhldsb").trim();
+	const appName = (value ?? getAppName()).trim();
   if (!/^[a-z][a-z0-9-]{1,40}$/.test(appName)) {
     throw new Error("应用名称只能包含小写字母、数字和连字符，且必须以字母开头");
   }

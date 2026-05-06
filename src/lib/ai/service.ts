@@ -1,0 +1,512 @@
+import { prisma } from "@/lib/db";
+
+/* ── Types ──────────────────────────────────────────────────── */
+export interface CreateProviderInput {
+  name: string;
+  type?: string;
+  apiKey: string;
+  baseUrl?: string;
+  defaultModel?: string;
+  availableModels?: string[];
+  isDefault?: boolean;
+  enabled?: boolean;
+  settings?: Record<string, unknown>;
+  createdBy: string;
+}
+
+export interface UpdateProviderInput {
+  name?: string;
+  type?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  defaultModel?: string;
+  availableModels?: string[];
+  isDefault?: boolean;
+  enabled?: boolean;
+  settings?: Record<string, unknown>;
+}
+
+export interface CreateConversationInput {
+  title?: string;
+  providerId: string;
+  model: string;
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  enableVision?: boolean;
+  createdBy: string;
+}
+
+export interface UpdateConversationInput {
+  title?: string;
+  model?: string;
+  systemPrompt?: string;
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  enableVision?: boolean;
+}
+
+/* ── Provider CRUD ──────────────────────────────────────────── */
+export async function createProvider(input: CreateProviderInput) {
+  if (!input.name.trim()) throw new Error("提供商名称不能为空");
+  if (!input.apiKey.trim()) throw new Error("API Key 不能为空");
+
+  // If this is set as default, clear other defaults
+  if (input.isDefault) {
+    await prisma.aiProvider.updateMany({
+      where: { createdBy: input.createdBy, isDefault: true },
+      data: { isDefault: false },
+    });
+  }
+
+  return prisma.aiProvider.create({
+    data: {
+      name: input.name.trim(),
+      type: (input.type as "OPENAI_COMPATIBLE") || "OPENAI_COMPATIBLE",
+      apiKey: input.apiKey.trim(),
+      baseUrl: input.baseUrl?.trim() || "https://api.openai.com/v1",
+      defaultModel: input.defaultModel?.trim() || "gpt-4o",
+      availableModels: JSON.stringify(input.availableModels ?? []),
+      isDefault: input.isDefault ?? false,
+      enabled: input.enabled ?? true,
+      settings: JSON.stringify(input.settings ?? {}),
+      createdBy: input.createdBy,
+    },
+  });
+}
+
+export async function listProviders(userId: string) {
+  const providers = await prisma.aiProvider.findMany({
+    where: { createdBy: userId },
+    orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+  });
+  // Mask API keys for listing
+  return providers.map((p) => ({
+    ...p,
+    apiKey: p.apiKey.slice(0, 8) + "..." + p.apiKey.slice(-4),
+    apiKeyFull: undefined,
+  }));
+}
+
+export async function getProviderById(id: string, userId: string) {
+  const provider = await prisma.aiProvider.findFirst({
+    where: { id, createdBy: userId },
+  });
+  if (!provider) throw new Error("提供商不存在");
+  return provider;
+}
+
+export async function updateProvider(id: string, userId: string, input: UpdateProviderInput) {
+  const existing = await getProviderById(id, userId);
+
+  if (input.isDefault) {
+    await prisma.aiProvider.updateMany({
+      where: { createdBy: userId, isDefault: true },
+      data: { isDefault: false },
+    });
+  }
+
+  return prisma.aiProvider.update({
+    where: { id },
+    data: {
+      ...(input.name !== undefined && { name: input.name.trim() }),
+      ...(input.type !== undefined && { type: input.type as "OPENAI_COMPATIBLE" }),
+      ...(input.apiKey !== undefined && { apiKey: input.apiKey.trim() }),
+      ...(input.baseUrl !== undefined && { baseUrl: input.baseUrl.trim() }),
+      ...(input.defaultModel !== undefined && { defaultModel: input.defaultModel.trim() }),
+      ...(input.availableModels !== undefined && { availableModels: JSON.stringify(input.availableModels) }),
+      ...(input.isDefault !== undefined && { isDefault: input.isDefault }),
+      ...(input.enabled !== undefined && { enabled: input.enabled }),
+      ...(input.settings !== undefined && { settings: JSON.stringify(input.settings) }),
+    },
+  });
+}
+
+export async function deleteProvider(id: string, userId: string) {
+  await getProviderById(id, userId);
+  return prisma.aiProvider.delete({ where: { id } });
+}
+
+/* ── Conversation CRUD ──────────────────────────────────────── */
+export async function createConversation(input: CreateConversationInput) {
+  const provider = await prisma.aiProvider.findFirst({
+    where: { id: input.providerId, createdBy: input.createdBy, enabled: true },
+  });
+  if (!provider) throw new Error("提供商不存在或已禁用");
+
+  return prisma.aiConversation.create({
+    data: {
+      title: input.title?.trim() || "新对话",
+      providerId: input.providerId,
+      model: input.model?.trim() || provider.defaultModel,
+      systemPrompt: input.systemPrompt?.trim() || null,
+      temperature: input.temperature ?? 0.7,
+      maxTokens: input.maxTokens ?? 4096,
+      topP: input.topP ?? 1.0,
+      frequencyPenalty: input.frequencyPenalty ?? 0.0,
+      presencePenalty: input.presencePenalty ?? 0.0,
+      enableVision: input.enableVision ?? false,
+      createdBy: input.createdBy,
+    },
+    include: { provider: true },
+  });
+}
+
+export async function listConversations(userId: string) {
+  return prisma.aiConversation.findMany({
+    where: { createdBy: userId },
+    orderBy: { updatedAt: "desc" },
+    include: { provider: { select: { id: true, name: true, type: true } } },
+  });
+}
+
+export async function getConversationById(id: string, userId: string) {
+  const conv = await prisma.aiConversation.findFirst({
+    where: { id, createdBy: userId },
+    include: {
+      provider: true,
+      messages: { orderBy: { createdAt: "asc" } },
+    },
+  });
+  if (!conv) throw new Error("对话不存在");
+  return conv;
+}
+
+export async function updateConversation(id: string, userId: string, input: UpdateConversationInput) {
+  const existing = await prisma.aiConversation.findFirst({ where: { id, createdBy: userId } });
+  if (!existing) throw new Error("对话不存在");
+
+  return prisma.aiConversation.update({
+    where: { id },
+    data: {
+      ...(input.title !== undefined && { title: input.title.trim() }),
+      ...(input.model !== undefined && { model: input.model.trim() }),
+      ...(input.systemPrompt !== undefined && { systemPrompt: input.systemPrompt?.trim() || null }),
+      ...(input.temperature !== undefined && { temperature: input.temperature }),
+      ...(input.maxTokens !== undefined && { maxTokens: input.maxTokens }),
+      ...(input.topP !== undefined && { topP: input.topP }),
+      ...(input.frequencyPenalty !== undefined && { frequencyPenalty: input.frequencyPenalty }),
+      ...(input.presencePenalty !== undefined && { presencePenalty: input.presencePenalty }),
+      ...(input.enableVision !== undefined && { enableVision: input.enableVision }),
+    },
+  });
+}
+
+export async function deleteConversation(id: string, userId: string) {
+  const existing = await prisma.aiConversation.findFirst({ where: { id, createdBy: userId } });
+  if (!existing) throw new Error("对话不存在");
+  return prisma.aiConversation.delete({ where: { id } });
+}
+
+/* ── Messages ───────────────────────────────────────────────── */
+export async function createMessage(input: {
+  conversationId: string;
+  role: string;
+  content: string;
+  reasoningContent?: string;
+  imageUrls?: string[];
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  latencyMs?: number;
+}) {
+  return prisma.aiMessage.create({
+    data: {
+      conversationId: input.conversationId,
+      role: input.role,
+      content: input.content,
+      reasoningContent: input.reasoningContent || null,
+      imageUrls: JSON.stringify(input.imageUrls ?? []),
+      model: input.model || null,
+      inputTokens: input.inputTokens ?? null,
+      outputTokens: input.outputTokens ?? null,
+      latencyMs: input.latencyMs ?? null,
+    },
+  });
+}
+
+export async function listMessages(conversationId: string) {
+  return prisma.aiMessage.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+/* ── Fetch Models from Provider API ─────────────────────────── */
+export interface AiModelInfo {
+  id: string;
+  name: string;
+  owned_by?: string;
+  /** Whether this model supports vision/image input */
+  vision?: boolean;
+  /** Max context tokens if reported */
+  context_length?: number;
+  /** Detailed capabilities of the model */
+  capabilities?: ModelCapabilities;
+}
+
+export interface ModelCapabilities {
+  /** Can accept image inputs */
+  vision: boolean;
+  /** Can accept PDF/document files */
+  document: boolean;
+  /** Can accept video inputs */
+  video: boolean;
+  /** Can accept audio inputs */
+  audio: boolean;
+}
+
+export async function fetchModelsFromProvider(providerId: string, userId: string): Promise<AiModelInfo[]> {
+  const provider = await prisma.aiProvider.findFirst({
+    where: { id: providerId, createdBy: userId, enabled: true },
+  });
+  if (!provider) throw new Error("提供商不存在或已禁用");
+
+  const baseUrl = provider.baseUrl.replace(/\/+$/, "");
+
+  // Try the OpenAI-compatible /models endpoint
+  const url = `${baseUrl}/models`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${provider.apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    // Fallback: return saved availableModels
+    const saved: string[] = JSON.parse(provider.availableModels || "[]");
+    if (saved.length > 0) {
+      return saved.map((id) => {
+        const caps = detectModelCapabilities(id);
+        return { id, name: id, vision: caps.vision, capabilities: caps };
+      });
+    }
+    // Last resort: return the default model
+    const defCaps = detectModelCapabilities(provider.defaultModel);
+    return [{ id: provider.defaultModel, name: provider.defaultModel, vision: defCaps.vision, capabilities: defCaps }];
+  }
+
+  const data = await response.json();
+  const rawModels: Array<{ id: string; name?: string; owned_by?: string; context_length?: number }> = data.data || data.models || [];
+
+  // Sort by id and enrich with capability detection
+  const models = rawModels
+    .map((m) => {
+      const caps = detectModelCapabilities(m.id);
+      return {
+        id: m.id,
+        name: m.name || m.id,
+        owned_by: m.owned_by,
+        vision: caps.vision,
+        context_length: m.context_length,
+        capabilities: caps,
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  // Cache the model list back to provider
+  if (models.length > 0) {
+    await prisma.aiProvider.update({
+      where: { id: providerId },
+      data: { availableModels: JSON.stringify(models.map((m) => m.id)) },
+    });
+  }
+
+  return models.length > 0
+    ? models
+    : (() => {
+        const defCaps = detectModelCapabilities(provider.defaultModel);
+        return [{ id: provider.defaultModel, name: provider.defaultModel, vision: defCaps.vision, capabilities: defCaps }];
+      })();
+}
+
+/** Detect detailed capabilities of a model from its ID */
+function detectModelCapabilities(modelId: string): ModelCapabilities {
+  const v = modelId.toLowerCase();
+
+  // Vision: models that can accept images
+  const vision =
+    v.includes("vision") ||
+    v.includes("gpt-4o") ||
+    v.includes("gpt-4-turbo") ||
+    v.includes("gpt4-turbo") ||
+    v.includes("gpt-4e") ||
+    v.includes("claude-3") ||
+    v.includes("claude-3.5") ||
+    v.includes("claude-4") ||
+    v.includes("gemini") ||
+    v.includes("qwen-vl") ||
+    v.includes("qwen2-vl") ||
+    v.includes("qwen2.5-vl") ||
+    v.includes("glm-4v") ||
+    v.includes("llava") ||
+    v.includes("internvl") ||
+    v.includes("cogvlm") ||
+    v.includes("minicpm-v") ||
+    v.includes("pixtral") ||
+    v.includes("o1") ||
+    v.includes("o3") ||
+    v.includes("o4") ||
+    v.includes("deepseek-vl") ||
+    v.includes("yi-vision");
+
+  // Document: models that can parse PDF/docs natively
+  const document =
+    v.includes("gemini-1.5") ||
+    v.includes("gemini-2") ||
+    v.includes("gemini-pro") ||
+    v.includes("claude-3.5-sonnet") ||
+    v.includes("claude-3.5-haiku") ||
+    v.includes("claude-4") ||
+    v.includes("gpt-4o") ||
+    v.includes("o1") ||
+    v.includes("o3") ||
+    v.includes("o4");
+
+  // Video: models that can process video frames
+  const video =
+    v.includes("gemini-1.5") ||
+    v.includes("gemini-2") ||
+    v.includes("gemini-pro") ||
+    v.includes("qwen2-vl") ||
+    v.includes("qwen2.5-vl") ||
+    v.includes("gpt-4o") ||
+    v.includes("claude-4");
+
+  // Audio: models that can accept audio/speech input
+  const audio =
+    v.includes("gemini-2") ||
+    v.includes("gpt-4o-audio") ||
+    v.includes("gpt-4o-realtime") ||
+    v.includes("o1") ||
+    v.includes("o3") ||
+    v.includes("o4");
+
+  return { vision, document, video, audio };
+}
+
+/** Backward-compatible shorthand */
+function isVisionModel(modelId: string): boolean {
+  return detectModelCapabilities(modelId).vision;
+}
+
+/* ── Chat Proxy ─────────────────────────────────────────────── */
+export interface ChatCompletionRequest {
+  providerId: string;
+  model: string;
+  messages: Array<{
+    role: "user" | "assistant" | "system";
+    content: string | Array<{ type: "text" | "image_url"; text?: string; image_url?: { url: string } }>;
+  }>;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  stream?: boolean;
+  /** Extra provider-specific body fields (e.g. Anthropic "max_tokens") */
+  extraBody?: Record<string, unknown>;
+}
+
+export async function sendChatRequest(req: ChatCompletionRequest, userId: string) {
+  const provider = await prisma.aiProvider.findFirst({
+    where: { id: req.providerId, createdBy: userId, enabled: true },
+  });
+  if (!provider) throw new Error("提供商不存在或已禁用");
+
+  const baseUrl = provider.baseUrl.replace(/\/+$/, "");
+  const url = `${baseUrl}/chat/completions`;
+
+  const body: Record<string, unknown> = {
+    model: req.model,
+    messages: req.messages,
+    temperature: req.temperature ?? 0.7,
+    max_tokens: req.max_tokens ?? 4096,
+    top_p: req.top_p ?? 1.0,
+    frequency_penalty: req.frequency_penalty ?? 0.0,
+    presence_penalty: req.presence_penalty ?? 0.0,
+    stream: req.stream ?? true,
+    ...(req.extraBody || {}),
+  };
+
+  // Build headers based on provider type
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (provider.type === "ANTHROPIC") {
+    headers["x-api-key"] = provider.apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+  } else if (provider.type === "GOOGLE") {
+    // Google uses key in query string, but some proxies accept header
+    headers["Authorization"] = `Bearer ${provider.apiKey}`;
+  } else {
+    // OpenAI / OpenAI-Compatible
+    headers["Authorization"] = `Bearer ${provider.apiKey}`;
+  }
+
+  const startTime = Date.now();
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "Unknown error");
+    throw new Error(`AI 请求失败 (${response.status}): ${errText.slice(0, 500)}`);
+  }
+
+  return { response, startTime };
+}
+
+/* ── Serialization ──────────────────────────────────────────── */
+export function serializeProvider(p: Awaited<ReturnType<typeof createProvider>>) {
+  return {
+    ...p,
+    apiKey: p.apiKey.slice(0, 8) + "..." + p.apiKey.slice(-4),
+    createdAt: p.createdAt.toISOString(),
+    updatedAt: p.updatedAt.toISOString(),
+  };
+}
+
+export function serializeConversation(c: Awaited<ReturnType<typeof getConversationById>>) {
+  return {
+    ...c,
+    createdAt: c.createdAt.toISOString(),
+    updatedAt: c.updatedAt.toISOString(),
+    provider: c.provider
+      ? {
+          ...c.provider,
+          createdAt: c.provider.createdAt.toISOString(),
+          updatedAt: c.provider.updatedAt.toISOString(),
+        }
+      : null,
+    messages: c.messages.map((m) => ({
+      ...m,
+      createdAt: m.createdAt.toISOString(),
+    })),
+  };
+}
+
+export function serializeConversationListItem(
+  c: Awaited<ReturnType<typeof listConversations>>[number]
+) {
+  return {
+    ...c,
+    createdAt: c.createdAt.toISOString(),
+    updatedAt: c.updatedAt.toISOString(),
+    provider: c.provider
+      ? {
+          ...c.provider,
+        }
+      : null,
+  };
+}
