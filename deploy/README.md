@@ -1,6 +1,6 @@
 # whrkhldsb 部署与迁移说明
 
-本目录提供把 VPS 统一管理 + 云盘系统部署到新机器的脚本和模板。目标是：在一台干净的 Debian/Ubuntu systemd 主机上，复制项目后可以通过一个脚本完成依赖安装、构建、数据库迁移、systemd 服务安装和 Caddy 反代配置。
+本目录提供把 VPS 统一管理 + 云盘系统部署到新机器的脚本和模板。默认应用标识仍兼容当前 `whrkhldsb`，但安装脚本和打包脚本均支持通过 `APP_NAME`、`APP_SLUG`、`SITE_NAME`、`SERVICE_PREFIX`、`PACKAGE_ROOT_NAME` 和 `DOMAIN` 改成任意新品牌/新域名。目标是：在一台干净的 Debian/Ubuntu systemd 主机上，复制项目后可以通过一个脚本完成依赖安装、构建、数据库迁移、systemd 服务安装和 Caddy 反代配置。
 
 ## 快速部署
 
@@ -9,12 +9,13 @@
 适合把代码放在 GitHub/GitLab/Gitea 私有仓库后，在新服务器直接拉取。仓库里不要提交 `.env.local`、私钥、数据库备份、上传/下载文件或日志。
 
 ```bash
-sudo APP_DIR=/opt/whrkhldsb DOMAIN=your.example.com \
-  REPO_URL=git@github.com:your-org/whrkhldsb.git \
-  bash -c 'mkdir -p /opt/whrkhldsb && git clone "$REPO_URL" /opt/whrkhldsb && /opt/whrkhldsb/deploy/install.sh'
-# 首次运行会生成 /opt/whrkhldsb/.env.local 并停止；编辑后重新运行同一命令。
-sudoedit /opt/whrkhldsb/.env.local
-sudo APP_DIR=/opt/whrkhldsb DOMAIN=your.example.com REPO_URL=git@github.com:your-org/whrkhldsb.git /opt/whrkhldsb/deploy/install.sh
+sudo APP_NAME="my-console" APP_SLUG=my-console SITE_NAME="我的控制台" \
+  APP_DIR=/opt/my-console DOMAIN=your.example.com \
+  REPO_URL=git@github.com:your-org/my-console.git \
+  bash -c 'mkdir -p "$APP_DIR" && git clone "$REPO_URL" "$APP_DIR" && "$APP_DIR/deploy/install.sh"'
+# 首次运行会生成 /opt/my-console/.env.local 并停止；编辑后重新运行同一命令。
+sudoedit /opt/my-console/.env.local
+sudo APP_NAME="my-console" APP_SLUG=my-console SITE_NAME="我的控制台" APP_DIR=/opt/my-console DOMAIN=your.example.com REPO_URL=git@github.com:your-org/my-console.git /opt/my-console/deploy/install.sh
 ```
 
 ### 方式 B：压缩包部署，解压后直接运行一键脚本
@@ -24,18 +25,20 @@ sudo APP_DIR=/opt/whrkhldsb DOMAIN=your.example.com REPO_URL=git@github.com:your
 ```bash
 cd /root/whrkhldsb
 ./deploy/package.sh
-# 输出示例：/root/whrkhldsb/dist/whrkhldsb-release-YYYYMMDD-HHMMSS.tar.gz
+# 默认输出示例：/root/whrkhldsb/dist/whrkhldsb-release-YYYYMMDD-HHMMSS.tar.gz
+# 自定义包名/根目录：APP_NAME="我的 控制台" APP_SLUG=my-console PACKAGE_ROOT_NAME=my-console-bundle ./deploy/package.sh
 ```
 
 把压缩包传到新服务器后：
 
 ```bash
-tar -xzf whrkhldsb-release-YYYYMMDD-HHMMSS.tar.gz
-cd whrkhldsb-release
-sudo DOMAIN=your.example.com APP_DIR=/opt/whrkhldsb ./install.sh
-# 首次运行会生成 /opt/whrkhldsb/.env.local 并停止；编辑后重新运行。
-sudoedit /opt/whrkhldsb/.env.local
-sudo DOMAIN=your.example.com APP_DIR=/opt/whrkhldsb ./install.sh
+tar -xzf my-console-release-YYYYMMDD-HHMMSS.tar.gz
+cd my-console-bundle   # 默认包则是 whrkhldsb-release
+sudo APP_NAME="我的控制台" APP_SLUG=my-console SITE_NAME="我的控制台" \
+  SERVICE_PREFIX=my-console DOMAIN=your.example.com APP_DIR=/opt/my-console ./install.sh
+# 首次运行会生成 /opt/my-console/.env.local 并停止；编辑后重新运行。
+sudoedit /opt/my-console/.env.local
+sudo APP_NAME="我的控制台" APP_SLUG=my-console SITE_NAME="我的控制台" SERVICE_PREFIX=my-console DOMAIN=your.example.com APP_DIR=/opt/my-console ./install.sh
 ```
 
 `deploy/package.sh` 默认排除 `.env.local`、`.env.*.local`、私钥、数据库/备份、`node_modules`、`.next`、上传/下载/日志/临时文件和运行态云盘数据。
@@ -72,8 +75,12 @@ sudo DOMAIN=your.example.com APP_DIR=/opt/whrkhldsb deploy/install.sh
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `APP_DIR` | `/opt/whrkhldsb` | 应用安装目录 |
-| `APP_USER` | `whrkhldsb` | systemd 运行用户 |
+| `APP_NAME` | `whrkhldsb` | 应用/品牌名；可为中文，默认兼容当前站点 |
+| `APP_SLUG` | 从 `APP_NAME` 自动生成，空时 `whrkhldsb` | 安全短标识，用于默认安装目录、运行目录和 cookie/session issuer |
+| `SITE_NAME` | `$APP_NAME` | systemd 描述、部署展示名 |
+| `SERVICE_PREFIX` | `$APP_SLUG` | systemd 服务名前缀，生成 `$SERVICE_PREFIX-next.service` 与 `$SERVICE_PREFIX-ssh-ws.service` |
+| `APP_DIR` | `/opt/$APP_SLUG` | 应用安装目录 |
+| `APP_USER` | `$APP_SLUG` | systemd 运行用户 |
 | `DOMAIN` | 空 | Caddy 绑定域名；为空时跳过 Caddy 配置 |
 | `ENV_FILE` | `$APP_DIR/.env.local` | 运行环境变量文件 |
 | `ENV_TEMPLATE` | `$APP_DIR/deploy/env.production.example` | 首次创建 `.env.local` 使用的模板 |
@@ -83,6 +90,10 @@ sudo DOMAIN=your.example.com APP_DIR=/opt/whrkhldsb deploy/install.sh
 | `SKIP_CADDY` | `0` | 设为 `1` 跳过 Caddy 配置 |
 | `SKIP_DB_SETUP` | `0` | 设为 `1` 跳过 `prisma migrate deploy` |
 | `SKIP_RESTART` | `0` | 只安装/构建不重启服务 |
+| `PACKAGE_ROOT_NAME` | `$APP_SLUG-release` | `deploy/package.sh` 生成压缩包内顶层目录 |
+| `ARCHIVE_NAME` | `$APP_SLUG-release-$STAMP.tar.gz` | `deploy/package.sh` 输出文件名 |
+
+安装脚本会在全新 Debian/Ubuntu 主机上自动安装基础依赖：`ca-certificates`、`curl`、`gnupg`、`git`、`openssh-client`、`sshpass`、`rsync`、`postgresql-client`、`build-essential`，并在缺少 Node 或 Node 主版本低于 `NODE_VERSION_MAJOR`（默认 22）时通过 NodeSource 安装 Node.js；未设置 `SKIP_CADDY=1` 且系统缺少 Caddy 时，也会自动安装 Caddy。脚本随后执行 `npm ci`、`npm run prisma:generate`、`npm run prisma:deploy`（除非 `SKIP_DB_SETUP=1`）、`npm run build`，最后写入 systemd 并重启服务。
 
 安装脚本会在生成 systemd unit 时自动探测当前可用的 `node`、`npm`、`npx` 绝对路径，并把这些目录写入 systemd `PATH`。这可以兼容 Node 安装在 `/root/.local/bin`、`/usr/local/bin`、NodeSource `/usr/bin` 等不同位置的服务器，避免 systemd 启动时报 `/usr/bin/env: node: No such file or directory`。
 
@@ -105,8 +116,8 @@ sudo DOMAIN=your.example.com APP_DIR=/opt/whrkhldsb deploy/install.sh
 
 | 脚本 | 用途 | 示例 |
 | --- | --- | --- |
-| `deploy/preflight.sh` | 部署前置检查；验证基础命令、环境变量占位符、Node 版本、端口占用、磁盘空间和运行目录，且不输出密钥值 | `APP_DIR=/opt/whrkhldsb ENV_FILE=/opt/whrkhldsb/.env.local deploy/preflight.sh` |
-| `deploy/upgrade.sh` | 升级部署；默认先创建升级前数据库备份，再复用 `install.sh` 的构建/迁移/重启流程，最后执行 `deploy/check.sh` | `sudo APP_DIR=/opt/whrkhldsb DOMAIN=your.example.com deploy/upgrade.sh` |
+| `deploy/preflight.sh` | 部署前置检查；验证基础命令、环境变量占位符、Node 版本、端口占用、磁盘空间和运行目录，且不输出密钥值 | `APP_DIR=/opt/my-console ENV_FILE=/opt/my-console/.env.local deploy/preflight.sh` |
+| `deploy/upgrade.sh` | 升级部署；默认先创建升级前数据库备份，再复用 `install.sh` 的构建/迁移/重启流程，最后执行 `deploy/check.sh` | `sudo APP_NAME=my-console APP_SLUG=my-console APP_DIR=/opt/my-console DOMAIN=your.example.com deploy/upgrade.sh` |
 | `deploy/check.sh` | 检查环境变量、运行目录、systemd 服务和本地 `/login`，可选运行完整 npm 验证 | `APP_DIR=/opt/whrkhldsb CHECK_PUBLIC_URL=https://your.example.com deploy/check.sh` |
 | `deploy/backup.sh` | 备份数据库到 `BACKUP_DIR`，内部调用 `scripts/backup-db.sh` | `sudo APP_DIR=/opt/whrkhldsb BACKUP_DIR=/var/backups/whrkhldsb deploy/backup.sh` |
 | `scripts/restore-db.sh` | 从 `.sql` 或 `.sql.gz` 恢复数据库；默认需要 `CONFIRM_RESTORE=1` 防误操作 | `CONFIRM_RESTORE=1 APP_DIR=/opt/whrkhldsb scripts/restore-db.sh /var/backups/whrkhldsb/xxx.sql.gz` |
@@ -121,7 +132,7 @@ RUN_NPM_CHECKS=1 APP_DIR=/opt/whrkhldsb deploy/check.sh
 
 ```bash
 cd /path/to/whrkhldsb
-sudo APP_DIR=/opt/whrkhldsb DOMAIN=your.example.com deploy/upgrade.sh
+sudo APP_NAME=my-console APP_SLUG=my-console APP_DIR=/opt/my-console DOMAIN=your.example.com deploy/upgrade.sh
 ```
 
 `deploy/upgrade.sh` 默认会：
@@ -161,7 +172,7 @@ SQL
 ## 验证命令
 
 ```bash
-cd /opt/whrkhldsb
+cd /opt/my-console
 set -a; source .env.local; set +a
 npm run prisma:generate
 npm run typecheck
@@ -170,7 +181,7 @@ npm test
 npm run build
 curl -fsS http://127.0.0.1:3000/login >/dev/null
 # /health 或 /api/health 在未登录时可能按当前认证策略重定向到 /login，这不代表服务失败。
-systemctl status whrkhldsb-next.service whrkhldsb-ssh-ws.service caddy --no-pager
+systemctl status ${SERVICE_PREFIX:-my-console}-next.service ${SERVICE_PREFIX:-my-console}-ssh-ws.service caddy --no-pager
 ```
 
 
@@ -201,8 +212,8 @@ Cron 示例：
 
 ## 服务结构
 
-- `whrkhldsb-next.service`：Next.js 应用，默认监听 `127.0.0.1:3000`
-- `whrkhldsb-ssh-ws.service`：SSH WebSocket 辅助服务，默认监听 `127.0.0.1:3001`
+- `${SERVICE_PREFIX:-whrkhldsb}-next.service`：Next.js 应用，默认监听 `127.0.0.1:3000`
+- `${SERVICE_PREFIX:-whrkhldsb}-ssh-ws.service`：SSH WebSocket 辅助服务，默认监听 `127.0.0.1:3001`
 - `caddy`：公网 HTTPS 反向代理
 - PostgreSQL：通过 `DATABASE_URL` 连接，可以是本机或外部数据库
 
@@ -210,7 +221,7 @@ Cron 示例：
 
 1. 部署前保留数据库备份：`scripts/backup-db.sh`。
 2. 保留上一版源码目录或 Git tag。
-3. 如新版本异常：回退源码后执行 `npm ci && npm run prisma:generate && npm run build && systemctl restart whrkhldsb-next.service whrkhldsb-ssh-ws.service`。
+3. 如新版本异常：回退源码后执行 `npm ci && npm run prisma:generate && npm run build && systemctl restart ${SERVICE_PREFIX:-whrkhldsb}-next.service ${SERVICE_PREFIX:-whrkhldsb}-ssh-ws.service`。
 
 
 ### Optional: AList WebDAV rclone mount

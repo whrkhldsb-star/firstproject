@@ -5,9 +5,19 @@ import type { RoleKey } from "./rbac";
 
 const logger = createLogger("auth:session");
 
-const SESSION_COOKIE_NAME = "whrkhldsb_session";
-const SESSION_ISSUER = "whrkhldsb";
-const SESSION_AUDIENCE = "whrkhldsb-console";
+function slugifyAppName(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "whrkhldsb";
+}
+
+const APP_SLUG = slugifyAppName(process.env.APP_SLUG || process.env.APP_NAME || "whrkhldsb");
+const SESSION_COOKIE_NAME = process.env.AUTH_SESSION_COOKIE_NAME?.trim() || `${APP_SLUG}_session`;
+const SESSION_ISSUER = process.env.AUTH_SESSION_ISSUER?.trim() || APP_SLUG;
+const SESSION_AUDIENCE = process.env.AUTH_SESSION_AUDIENCE?.trim() || `${APP_SLUG}-console`;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const AUTH_BYPASS_PREFIXES = ["/_next", "/api/public", "/api/status", "/favicon.ico"];
 const AUTH_BYPASS_EXACT = new Set(["/login", "/api/login", "/status"]);

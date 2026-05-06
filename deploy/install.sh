@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
-# Portable one-command installer/deployer for whrkhldsb.
+# Portable one-command installer/deployer.
 # Tested target: Debian/Ubuntu systemd host. Re-runnable and safe for upgrades.
 
 set -euo pipefail
 
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
+}
+
 APP_NAME="${APP_NAME:-whrkhldsb}"
-APP_DIR="${APP_DIR:-/opt/${APP_NAME}}"
-APP_USER="${APP_USER:-${APP_NAME}}"
+APP_SLUG="${APP_SLUG:-$(slugify "${APP_NAME}")}"
+[ -n "${APP_SLUG}" ] || APP_SLUG="whrkhldsb"
+SITE_NAME="${SITE_NAME:-${APP_NAME}}"
+SERVICE_PREFIX="${SERVICE_PREFIX:-${APP_SLUG}}"
+APP_DIR="${APP_DIR:-/opt/${APP_SLUG}}"
+APP_USER="${APP_USER:-${APP_SLUG}}"
 DOMAIN="${DOMAIN:-}"
 NODE_VERSION_MAJOR="${NODE_VERSION_MAJOR:-22}"
 NEXT_HOST="${NEXT_HOST:-127.0.0.1}"
@@ -183,9 +191,9 @@ create_runtime_dirs() {
     "${APP_DIR}/downloads" \
     "${APP_DIR}/backups" \
     "${APP_DIR}/logs" \
-    "${STORAGE_ROOT:-/var/lib/${APP_NAME}/storage}" \
-    "${DOWNLOAD_ROOT:-/var/lib/${APP_NAME}/downloads}" \
-    "${BACKUP_DIR:-/var/backups/${APP_NAME}}"
+    "${STORAGE_ROOT:-/var/lib/${APP_SLUG}/storage}" \
+    "${DOWNLOAD_ROOT:-/var/lib/${APP_SLUG}/downloads}" \
+    "${BACKUP_DIR:-/var/backups/${APP_SLUG}}"
   chown -R "${APP_USER}:${APP_USER}" \
     "${APP_DIR}/storage" \
     "${APP_DIR}/tmp" \
@@ -193,9 +201,9 @@ create_runtime_dirs() {
     "${APP_DIR}/downloads" \
     "${APP_DIR}/backups" \
     "${APP_DIR}/logs" \
-    "${STORAGE_ROOT:-/var/lib/${APP_NAME}/storage}" \
-    "${DOWNLOAD_ROOT:-/var/lib/${APP_NAME}/downloads}" \
-    "${BACKUP_DIR:-/var/backups/${APP_NAME}}"
+    "${STORAGE_ROOT:-/var/lib/${APP_SLUG}/storage}" \
+    "${DOWNLOAD_ROOT:-/var/lib/${APP_SLUG}/downloads}" \
+    "${BACKUP_DIR:-/var/backups/${APP_SLUG}}"
 }
 
 build_app() {
@@ -221,9 +229,13 @@ install_systemd() {
   npm_bin="$(resolve_command npm)"
   npx_bin="$(resolve_command npx)"
   systemd_path="$(build_systemd_path "${node_bin}" "${npm_bin}" "${npx_bin}")"
-  install -m 0644 "${APP_DIR}/deploy/systemd/whrkhldsb-next.service.example" "/etc/systemd/system/${APP_NAME}-next.service"
-  install -m 0644 "${APP_DIR}/deploy/systemd/whrkhldsb-ssh-ws.service.example" "/etc/systemd/system/${APP_NAME}-ssh-ws.service"
+  install -m 0644 "${APP_DIR}/deploy/systemd/whrkhldsb-next.service.example" "/etc/systemd/system/${SERVICE_PREFIX}-next.service"
+  install -m 0644 "${APP_DIR}/deploy/systemd/whrkhldsb-ssh-ws.service.example" "/etc/systemd/system/${SERVICE_PREFIX}-ssh-ws.service"
+  local escaped_site_name
+  escaped_site_name="$(shell_escape_sed_replacement "${SITE_NAME}")"
   sed -i \
+    -e "s#Description=.*Next.js.*#Description=${escaped_site_name} Next.js application#" \
+    -e "s#Description=.*SSH WebSocket.*#Description=${escaped_site_name} SSH WebSocket proxy#" \
     -e "s#WorkingDirectory=.*#WorkingDirectory=${APP_DIR}#" \
     -e "s#EnvironmentFile=.*#EnvironmentFile=${ENV_FILE}#" \
     -e "s#Environment=PATH=.*#Environment=PATH=${systemd_path}#" \
@@ -231,9 +243,9 @@ install_systemd() {
     -e "s#ExecStart=.*npx tsx src/ssh-ws-proxy.ts#ExecStart=${npx_bin} tsx src/ssh-ws-proxy.ts#" \
     -e "s#User=.*#User=${APP_USER}#" \
     -e "s#Group=.*#Group=${APP_USER}#" \
-    "/etc/systemd/system/${APP_NAME}-next.service" "/etc/systemd/system/${APP_NAME}-ssh-ws.service"
+    "/etc/systemd/system/${SERVICE_PREFIX}-next.service" "/etc/systemd/system/${SERVICE_PREFIX}-ssh-ws.service"
   systemctl daemon-reload
-  systemctl enable "${APP_NAME}-next.service" "${APP_NAME}-ssh-ws.service"
+  systemctl enable "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service"
 }
 
 install_caddy() {
@@ -257,10 +269,10 @@ install_caddy() {
 restart_services() {
   [ "${SKIP_RESTART}" = "1" ] && { warn "Skipping service restart"; return; }
   log "Restarting services"
-  systemctl restart "${APP_NAME}-next.service" "${APP_NAME}-ssh-ws.service"
+  systemctl restart "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service"
   [ "${SKIP_CADDY}" = "1" ] || systemctl reload caddy || systemctl restart caddy
   sleep 2
-  systemctl --no-pager --lines=20 status "${APP_NAME}-next.service" "${APP_NAME}-ssh-ws.service" || true
+  systemctl --no-pager --lines=20 status "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service" || true
   curl -fsS "http://${NEXT_HOST}:${NEXT_PORT}/login" >/dev/null || warn "Local login page did not return 2xx; check logs."
 }
 

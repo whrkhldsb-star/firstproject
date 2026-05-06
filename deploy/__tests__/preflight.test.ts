@@ -268,21 +268,29 @@ describe("deploy/install.sh", () => {
           APP_DIR: appDir,
           ENV_FILE: envFile,
           SOURCE_DIR: repoRoot,
+          APP_NAME: "custom-console",
           APP_USER: "portable-app",
           DOMAIN: "portable.example.test",
+          SERVICE_PREFIX: "customsvc",
+          SITE_NAME: "自定义控制台",
           SKIP_PACKAGES: "1",
           SKIP_RESTART: "1",
         },
       });
 
       expect(result.code).toBe(0);
-      const nextUnit = await readFile(path.join(fakeRoot, "etc/systemd/system/whrkhldsb-next.service"), "utf8");
-      const wsUnit = await readFile(path.join(fakeRoot, "etc/systemd/system/whrkhldsb-ssh-ws.service"), "utf8");
+      const nextUnitPath = path.join(fakeRoot, "etc/systemd/system/customsvc-next.service");
+      const wsUnitPath = path.join(fakeRoot, "etc/systemd/system/customsvc-ssh-ws.service");
+      const nextUnit = await readFile(nextUnitPath, "utf8");
+      const wsUnit = await readFile(wsUnitPath, "utf8");
       expect(nextUnit).toContain(`Environment=PATH=${customNodeDir}`);
       expect(nextUnit).toContain(`ExecStart=${path.join(customNodeDir, "npm")} run start`);
+      expect(nextUnit).toContain("Description=自定义控制台 Next.js application");
       expect(wsUnit).toContain(`Environment=PATH=${customNodeDir}`);
       expect(wsUnit).toContain(`ExecStart=${path.join(customNodeDir, "npx")} tsx src/ssh-ws-proxy.ts`);
+      expect(wsUnit).toContain("Description=自定义控制台 SSH WebSocket proxy");
       expect(result.stdout + result.stderr).not.toContain("portable_initial_value");
+      expect(result.stdout + result.stderr).not.toContain("whrkhldsb-next.service");
     } finally {
       await rm(appDir, { force: true, recursive: true });
     }
@@ -313,6 +321,43 @@ describe("compressed archive deployment entrypoints", () => {
     expect(installer).toContain("deploy/install.sh");
     expect(packager).toContain(".env.local");
     expect(packager).toContain("node_modules");
-    expect(packager).toContain("whrkhldsb-release");
+    expect(packager).toContain("${APP_SLUG}-release");
+  });
+
+  it("lets release archives use a custom portable app slug and package root", async () => {
+    const repoRoot = path.resolve(__dirname, "../..");
+    const outputDir = await mkdtemp(path.join(tmpdir(), "portable-release-"));
+    const archiveScript = path.join(repoRoot, "deploy/package.sh");
+
+    try {
+      const result = await runScript(archiveScript, {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          APP_NAME: "我的 控制台",
+          APP_SLUG: "my-console",
+          PACKAGE_ROOT_NAME: "my-console-bundle",
+          OUTPUT_DIR: outputDir,
+          STAMP: "portabletest",
+        },
+      });
+
+      expect(result.code, result.stdout + result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe(path.join(outputDir, "my-console-release-portabletest.tar.gz"));
+
+      const listing = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+        const child = spawn("tar", ["-tzf", path.join(outputDir, "my-console-release-portabletest.tar.gz")]);
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+        child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+        child.on("close", (code) => resolve({ code, stdout, stderr }));
+      });
+      expect(listing.code, listing.stderr).toBe(0);
+      expect(listing.stdout).toContain("my-console-bundle/./install.sh");
+      expect(listing.stdout).not.toContain("whrkhldsb-release/");
+    } finally {
+      await rm(outputDir, { force: true, recursive: true });
+    }
   });
 });

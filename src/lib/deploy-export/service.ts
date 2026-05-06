@@ -29,14 +29,20 @@ export function buildPortableDeploymentPackage(options: { domain?: string; appNa
   const appName = sanitizeAppName(options.appName);
   const domain = sanitizeDomain(options.domain);
   const envTemplate = [
+    `APP_NAME="${appName}"`,
+    `APP_SLUG="${appName}"`,
+    `SITE_NAME="${appName}"`,
+    `AUTH_SESSION_COOKIE_NAME="${appName}_session"`,
     'DATABASE_URL="REPLACE_WITH_DATABASE_URL"',
     'AUTH_SESSION_SECRET="REPLACE_WITH_AUTH_SESSION_SECRET"',
-    'NEXT_PUBLIC_APP_URL="https://' + domain + '"',
+    'ADMIN_INITIAL_PASSWORD="REPLACE_WITH_ADMIN_INITIAL_PASSWORD"',
+    `NEXT_PUBLIC_APP_URL="https://${domain}"`,
+    `NEXT_PUBLIC_APP_PUBLIC_LABEL="${domain}"`,
     ...DANGEROUS_ENV_FLAGS.map((key) => `${key}="false"`),
   ].join("\n");
   const systemdUnit = `[Unit]\nDescription=${appName} Next.js app\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=/opt/${appName}\nEnvironmentFile=/opt/${appName}/.env.production\nExecStart=/usr/bin/npm run start\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n`;
   const caddyfile = `${domain} {\n  reverse_proxy 127.0.0.1:3000\n}\n`;
-  const deployScript = `#!/usr/bin/env bash\nset -euo pipefail\nAPP_DIR=\"\${APP_DIR:-/opt/${appName}}\"\nmkdir -p \"$APP_DIR\"/{storage,uploads,downloads,logs,backups,tmp}\nnpm ci\nnpx prisma generate\nnpx prisma migrate deploy\nnpm run build\n`;
+  const deployScript = `#!/usr/bin/env bash\nset -euo pipefail\nAPP_NAME=\"\${APP_NAME:-${appName}}\"\nAPP_SLUG=\"\${APP_SLUG:-${appName}}\"\nSERVICE_PREFIX=\"\${SERVICE_PREFIX:-$APP_SLUG}\"\nAPP_DIR=\"\${APP_DIR:-/opt/$APP_SLUG}\"\nmkdir -p \"$APP_DIR\"/{storage,uploads,downloads,logs,backups,tmp}\nnpm ci\nnpx prisma generate\nnpx prisma migrate deploy\nnpm run build\n`;
   const files = { "env.production.example": envTemplate, [`${appName}-next.service`]: systemdUnit, "Caddyfile.example": caddyfile, "deploy.sh": deployScript };
   const joined = Object.values(files).join("\n");
   if (/postgres(?:ql)?:\/\/[^\s"']+:[^\s"']+@/i.test(joined) || /BEGIN (?:OPENSSH|RSA|EC|DSA) PRIVATE KEY/.test(joined)) {

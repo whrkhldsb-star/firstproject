@@ -30,8 +30,18 @@ export function resolveSshWsListenConfig(env: Partial<NodeJS.ProcessEnv> = proce
 
 const { host: HOST, port: PORT } = resolveSshWsListenConfig();
 
-const SESSION_ISSUER = "whrkhldsb";
-const SESSION_AUDIENCE = "whrkhldsb-console";
+function slugifyAppName(value: string) {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "whrkhldsb";
+}
+
+const APP_SLUG = slugifyAppName(process.env.APP_SLUG || process.env.APP_NAME || "whrkhldsb");
+const SESSION_ISSUER = process.env.AUTH_SESSION_ISSUER?.trim() || APP_SLUG;
+const SESSION_AUDIENCE = process.env.AUTH_SESSION_AUDIENCE?.trim() || `${APP_SLUG}-console`;
 
 function getSessionSecret() {
   return process.env.AUTH_SESSION_SECRET ?? "dev-only-session-secret-change-me";

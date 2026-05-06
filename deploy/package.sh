@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+slugify() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
+}
+
 APP_NAME="${APP_NAME:-whrkhldsb}"
-PACKAGE_ROOT_NAME="${PACKAGE_ROOT_NAME:-whrkhldsb-release}"
+APP_SLUG="${APP_SLUG:-$(slugify "${APP_NAME}")}"
+[ -n "${APP_SLUG}" ] || APP_SLUG="whrkhldsb"
+PACKAGE_ROOT_NAME="${PACKAGE_ROOT_NAME:-${APP_SLUG}-release}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT_DIR="${OUTPUT_DIR:-${REPO_ROOT}/dist}"
 STAMP="${STAMP:-$(date +%Y%m%d-%H%M%S)}"
-ARCHIVE_NAME="${ARCHIVE_NAME:-${APP_NAME}-release-${STAMP}.tar.gz}"
+ARCHIVE_NAME="${ARCHIVE_NAME:-${APP_SLUG}-release-${STAMP}.tar.gz}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-${OUTPUT_DIR}/${ARCHIVE_NAME}}"
+
+case "${PACKAGE_ROOT_NAME}" in
+  ""|/*|*..*|*//*|*/*) printf 'Invalid PACKAGE_ROOT_NAME: %s\n' "${PACKAGE_ROOT_NAME}" >&2; exit 1 ;;
+esac
 
 if [ "${CHECK_SYNTAX_ONLY:-0}" = "1" ]; then
   exit 0
