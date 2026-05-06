@@ -1,6 +1,7 @@
 import { UserStatus } from "@prisma/client";
 
 import { ADMIN_BOOTSTRAP, getInitialAdminPassword } from "@/lib/auth/bootstrap";
+import { assertProductionDemoIsolation } from "@/lib/demo/isolation";
 import { prisma } from "@/lib/db";
 import {
   ALL_PERMISSIONS,
@@ -35,6 +36,7 @@ const PERMISSION_LABELS: Record<string, { name: string; description: string }> =
   "command:read": { name: "查看命令", description: "允许查看命令执行记录" },
   "role:manage": { name: "管理角色", description: "允许创建和修改角色与权限" },
   "server:read": { name: "查看服务器", description: "允许查看 VPS 节点信息" },
+  "server:ssh": { name: "使用 SSH 终端", description: "允许打开 VPS WebSocket SSH 终端" },
   "server:write": { name: "管理服务器", description: "允许新增、编辑、启停 VPS 节点配置" },
   "storage:delete": { name: "删除文件", description: "允许删除云盘文件与目录" },
   "storage:manage-node": { name: "管理存储节点", description: "允许配置本地或远端 SFTP 存储节点" },
@@ -225,6 +227,7 @@ async function seedDemoData() {
 }
 
 export async function seedDatabase() {
+  assertProductionDemoIsolation();
   await seedPermissions();
   await seedRoles();
   await seedAdmin();

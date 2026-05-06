@@ -16,10 +16,12 @@ type ServerCardActionsProps = {
  port: number;
  enabled: boolean;
  sessionToken: string;
+ canManageServers?: boolean;
+ canUseSshTerminal?: boolean;
  onSshConnect?: () => void;
 };
 
-export function ServerCardActions({ serverId, serverName, host, port, enabled, sessionToken, onSshConnect }: ServerCardActionsProps) {
+export function ServerCardActions({ serverId, serverName, host, port, enabled, sessionToken, canManageServers = true, canUseSshTerminal = false, onSshConnect }: ServerCardActionsProps) {
   const [toggleState, toggleAction] = useActionState(toggleServerAction, initialState);
   const [deleteState, deleteAction] = useActionState(deleteServerAction, initialState);
   const [showTerminal, setShowTerminal] = useState(false);
@@ -36,7 +38,7 @@ export function ServerCardActions({ serverId, serverName, host, port, enabled, s
     <>
       <div className="space-y-3">
       {/* SSH Terminal button */}
-      {enabled && (
+      {enabled && canUseSshTerminal && (
         <button
           type="button"
           onClick={handleOpenTerminal}
@@ -47,7 +49,7 @@ export function ServerCardActions({ serverId, serverName, host, port, enabled, s
         </button>
       )}
 
-      <form action={toggleAction} className="space-y-2">
+      {canManageServers ? <form action={toggleAction} className="space-y-2">
         <input type="hidden" name="serverId" value={serverId} />
         <SubmitButton
           pendingLabel="处理中..."
@@ -57,9 +59,9 @@ export function ServerCardActions({ serverId, serverName, host, port, enabled, s
         </SubmitButton>
         {toggleState.error ? <div className="text-xs text-rose-200">{toggleState.error}</div> : null}
         {toggleState.success ? <div className="text-xs text-emerald-200">{toggleState.success}</div> : null}
-      </form>
+      </form> : null}
 
-      <form action={deleteAction} className="space-y-2">
+      {canManageServers ? <form action={deleteAction} className="space-y-2">
         <input type="hidden" name="serverId" value={serverId} />
         {isConfirming ? (
           <>
@@ -96,7 +98,7 @@ export function ServerCardActions({ serverId, serverName, host, port, enabled, s
         )}
         {deleteState.error ? <div className="text-xs text-rose-200">{deleteState.error}</div> : null}
         {deleteState.success ? <div className="text-xs text-emerald-200">{deleteState.success}</div> : null}
-      </form>
+      </form> : null}
       </div>
  {showTerminal ? (
  <SshTerminalModal

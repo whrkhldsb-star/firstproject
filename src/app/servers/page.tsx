@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function ServersPage() {
 	const session = await requireSession("/servers");
 	const canManageServers = sessionHasPermission(session, "server:write");
+	const canUseSshTerminal = sessionHasPermission(session, "server:ssh");
 	const canCreateCommand = sessionHasPermission(session, "command:create");
 	const cookieStore = await cookies();
 	const sessionToken = cookieStore.get(getSessionCookieName())?.value ?? "";
@@ -130,7 +131,7 @@ export default async function ServersPage() {
 													<div className="space-y-2 text-sm">
 														<InfoRow label="关联存储" value={server.storageNode ? `${server.storageNode.name} · ${server.storageNode.basePath}` : "未绑定"} />
 														<InfoRow label="累计命令目标" value={String(server.targetCount)} />
-														{canManageServers && <ServerCardActions serverId={server.id} serverName={server.name} host={server.host} port={server.port} enabled={server.enabled} sessionToken={sessionToken} />}
+														{(canManageServers || canUseSshTerminal) && <ServerCardActions serverId={server.id} serverName={server.name} host={server.host} port={server.port} enabled={server.enabled} sessionToken={sessionToken} canManageServers={canManageServers} canUseSshTerminal={canUseSshTerminal} />}
 													</div>
 												</section>
 

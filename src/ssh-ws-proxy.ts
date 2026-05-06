@@ -12,6 +12,8 @@ import { Client } from "ssh2";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
+import { canUseSshTerminal } from "./lib/auth/ssh-access";
+
 // ── Config ──────────────────────────────────────────────────────────
 
 export function resolveSshWsListenConfig(env: Partial<NodeJS.ProcessEnv> = process.env) {
@@ -149,6 +151,12 @@ wss.on("connection", async (ws, req) => {
   const session = verifySessionToken(token);
   if (!session) {
     ws.send(JSON.stringify({ type: "error", data: "认证失败，请重新登录" }));
+    ws.close();
+    return;
+  }
+
+  if (!canUseSshTerminal(session)) {
+    ws.send(JSON.stringify({ type: "error", data: "缺少 SSH 终端权限" }));
     ws.close();
     return;
   }

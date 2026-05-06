@@ -3,6 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { isDemoFallbackEnabled } from "@/lib/demo/isolation";
 import { isDatabaseUnavailableError, prisma } from "@/lib/db";
 import { listRemoteDirectory } from "@/lib/ssh/client";
 import { normalizeRemotePath } from "@/lib/storage/remote-path";
@@ -174,10 +175,6 @@ async function resolveLocalEditableFileEntry(fileEntryId: string) {
   }
 
   return { entry, absolutePath, fileStat };
-}
-
-function getStorageDemoFallbackEnabled() {
-  return process.env.ENABLE_DEMO_FALLBACK === "true" || process.env.STORAGE_DEMO_FALLBACK === "true";
 }
 
 async function ensureDefaultNodeState(isDefault?: boolean) {
@@ -439,7 +436,7 @@ export async function listStorageNodes() {
  }),
     }));
   } catch (error) {
-    if (isDatabaseUnavailableError(error) && getStorageDemoFallbackEnabled()) {
+    if (isDatabaseUnavailableError(error) && isDemoFallbackEnabled("STORAGE_DEMO_FALLBACK")) {
       return DEMO_STORAGE_OVERVIEW.nodes;
     }
 

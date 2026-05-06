@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 
 import { isProtectedByApproval } from "@/lib/auth/rbac";
+import { isDemoFallbackEnabled } from "@/lib/demo/isolation";
 import { isDatabaseUnavailableError, prisma } from "@/lib/db";
 import { DEMO_COMMAND_REQUESTS } from "@/lib/demo-data";
 
@@ -15,10 +16,6 @@ function toApprovalActorType(submissionMode: "user" | "assistant") {
 
 function toInitiatedByType(submissionMode: "user" | "assistant") {
   return submissionMode === "assistant" ? "ASSISTANT" : "USER";
-}
-
-function isDemoCommandFallbackEnabled() {
-  return process.env.ENABLE_DEMO_FALLBACK === "true" || process.env.COMMAND_DEMO_FALLBACK === "true";
 }
 
 async function markTargetsRunning(commandRequestId: string) {
@@ -475,7 +472,7 @@ export async function listCommandRequests() {
 
     return requests.map(mapCommandRequest);
   } catch (error) {
-    if (isDatabaseUnavailableError(error) && isDemoCommandFallbackEnabled()) {
+    if (isDatabaseUnavailableError(error) && isDemoFallbackEnabled("COMMAND_DEMO_FALLBACK")) {
       return DEMO_COMMAND_REQUESTS;
     }
 

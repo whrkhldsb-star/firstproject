@@ -1,4 +1,5 @@
 import { DEMO_AUTH_USER } from "@/lib/demo-data";
+import { isDemoFallbackEnabled } from "@/lib/demo/isolation";
 import { isDatabaseUnavailableError, prisma } from "@/lib/db";
 
 import { writeAuditLog } from "@/lib/audit/service";
@@ -32,9 +33,6 @@ function collectPermissions(roleKeys: RoleKey[]): Permission[] {
   );
 }
 
-function isDemoAuthFallbackEnabled() {
-  return process.env.ENABLE_DEMO_FALLBACK === "true" || process.env.AUTH_DEMO_FALLBACK === "true";
-}
 
 async function authenticateDemoUser(payload: LoginInput): Promise<AuthenticatedUser | null> {
   if (payload.username !== ADMIN_BOOTSTRAP.username || payload.password !== getInitialAdminPassword()) {
@@ -93,7 +91,7 @@ export async function authenticateUser(input: LoginInput): Promise<Authenticated
       permissions: collectPermissions(roleKeys),
     };
   } catch (error) {
-    if (isDatabaseUnavailableError(error) && isDemoAuthFallbackEnabled()) {
+    if (isDatabaseUnavailableError(error) && isDemoFallbackEnabled("AUTH_DEMO_FALLBACK")) {
       return authenticateDemoUser(payload);
     }
 
