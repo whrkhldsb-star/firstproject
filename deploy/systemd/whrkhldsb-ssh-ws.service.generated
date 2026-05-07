@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory=/root/whrkhldsb
 Environment=NODE_ENV=production
 Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/root/.local/bin/node /root/whrkhldsb/src/lib/ssh-ws-proxy/server.ts
+ExecStart=/root/.local/bin/npx tsx src/ssh-ws-proxy.ts
 Restart=always
 RestartSec=5
 User=root
