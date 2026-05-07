@@ -224,33 +224,10 @@ describe("deploy/install.sh", () => {
     await writeFile(path.join(binDir, "curl"), "#!/usr/bin/env bash\nexit 0\n");
     await writeFile(path.join(binDir, "gpg"), "#!/usr/bin/env bash\ncat >/dev/null\n");
     await writeFile(path.join(binDir, "chown"), `#!/usr/bin/env bash\nprintf 'chown %s\\n' "$*" >> ${JSON.stringify(logFile)}\n`);
-    await writeFile(path.join(binDir, "systemctl"), `#!/usr/bin/env bash\nprintf 'systemctl %s\\n' "$*" >> ${JSON.stringify(logFile)}\n`);
-    await writeFile(
-      path.join(binDir, "sed"),
-      [
-        "#!/usr/bin/env bash",
-        "args=()",
-        "for arg in \"$@\"; do",
-        `  case "$arg" in /etc/systemd/system/*) args+=(${JSON.stringify(fakeRoot)}"$arg");; *) args+=("$arg");; esac`,
-        "done",
-        "/bin/sed \"${args[@]}\"",
-        "",
-      ].join("\n"),
-    );
-    await writeFile(
-      path.join(binDir, "install"),
-      [
-        "#!/usr/bin/env bash",
-        "args=(\"$@\")",
-        "last_index=$((${#args[@]} - 1))",
-        "dest=\"${args[$last_index]}\"",
-        `case "$dest" in /etc/systemd/system/*) dest=${JSON.stringify(fakeRoot)}"$dest";; /etc/caddy/Caddyfile) dest=${JSON.stringify(fakeRoot)}"$dest";; esac`,
-        "unset 'args[$last_index]'",
-        "/bin/install \"${args[@]}\" \"$dest\"",
-        "",
-      ].join("\n"),
-    );
-    await writeFile(path.join(binDir, "caddy"), "#!/usr/bin/env bash\nexit 0\n");
+	await writeFile(path.join(binDir, "systemctl"), `#!/usr/bin/env bash\nprintf 'systemctl %s\\n' "$*" >> ${JSON.stringify(logFile)}\n`);
+	await writeFile(path.join(binDir, "sed"), "#!/usr/bin/env bash\n/bin/sed \"$@\"");
+	await writeFile(path.join(binDir, "install"), "#!/usr/bin/env bash\n/bin/install \"$@\"");
+	await writeFile(path.join(binDir, "caddy"), "#!/usr/bin/env bash\nexit 0\n");
     await writeFile(path.join(binDir, "rsync"), `#!/usr/bin/env bash\nsrc=""\ndest=""\nfor arg in "$@"; do\n  case "$arg" in\n    --*) ;;\n    *) src="$dest"; dest="$arg" ;;\n  esac\ndone\nmkdir -p "$dest"\n(cd "$src" && tar --exclude=.git --exclude=node_modules --exclude=.next --exclude=backups --exclude=storage --exclude=tmp --exclude=uploads --exclude=downloads --exclude=logs --exclude=.env.local -cf - .) | (cd "$dest" && tar -xf -)\n`);
     await writeFile(path.join(binDir, "git"), "#!/usr/bin/env bash\nexit 0\n");
     await writeFile(path.join(binDir, "sleep"), "#!/usr/bin/env bash\nexit 0\n");
@@ -271,10 +248,11 @@ describe("deploy/install.sh", () => {
           APP_NAME: "custom-console",
           APP_USER: "portable-app",
           DOMAIN: "portable.example.test",
-          SERVICE_PREFIX: "customsvc",
-          SITE_NAME: "自定义控制台",
-          SKIP_PACKAGES: "1",
-          SKIP_RESTART: "1",
+		SERVICE_PREFIX: "customsvc",
+		SITE_NAME: "自定义控制台",
+		DESTDIR: fakeRoot,
+		SKIP_PACKAGES: "1",
+		SKIP_RESTART: "1",
         },
       });
 

@@ -170,10 +170,14 @@ model CommandRequest {
   requesterId     String
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
-  requester       User                 @relation("requester", fields: [requesterId], references: [id], onDelete: Cascade)
-  approvals       CommandApproval[]
-  targets         CommandTarget[]
-  executionLogs   ExecutionLog[]
+ requester User @relation("requester", fields: [requesterId], references: [id], onDelete: Cascade)
+ approvals CommandApproval[]
+ targets CommandTarget[]
+ executionLogs ExecutionLog[]
+
+ @@index([status, createdAt])
+ @@index([requesterId, createdAt])
+ @@map("command_requests")
 }
 
 model CommandApproval {
@@ -197,8 +201,11 @@ model CommandTarget {
   exitCode         Int?
   startedAt        DateTime?
   finishedAt       DateTime?
-  commandRequest   CommandRequest       @relation(fields: [commandRequestId], references: [id], onDelete: Cascade)
-  server           Server               @relation(fields: [serverId], references: [id], onDelete: Cascade)
+ commandRequest CommandRequest @relation(fields: [commandRequestId], references: [id], onDelete: Cascade)
+ server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+ @@index([serverId, status])
+ @@map("command_targets")
 }
 
 model ExecutionLog {
@@ -273,14 +280,19 @@ model FileEntry {
 }
 
 model AuditLog {
-  id        String        @id @default(cuid())
-  actorType ActorType
-  actorId   String?
-  action    String
-  severity  AuditSeverity @default(INFO)
-  detail    Json
-  createdAt DateTime      @default(now())
-  actor     User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+ id String @id @default(cuid())
+ actorType ActorType
+ actorId String?
+ action String
+ severity AuditSeverity @default(INFO)
+ detail Json
+ createdAt DateTime @default(now())
+ actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+ @@index([createdAt])
+ @@index([action, createdAt])
+ @@index([actorId, createdAt])
+ @@map("audit_logs")
 }
 
 enum SyncJobStatus {

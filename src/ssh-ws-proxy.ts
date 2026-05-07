@@ -133,16 +133,36 @@ async function resolveServerConnection(serverId: string) {
 // ── WebSocket server ────────────────────────────────────────────────
 
 const server = createServer((_req, res) => {
-  res.writeHead(200);
-  res.end("SSH WebSocket proxy running");
+ res.writeHead(204);
+ res.end();
 });
 
 const wss = new WebSocketServer({ server, path: "/ssh" });
 
+// ── Origin validation (WebSocket CSRF protection) ──────────────────
+
+const ALLOWED_ORIGINS = (process.env.SSH_WS_ALLOWED_ORIGINS?.trim() || "")
+	.split(",")
+	.map((s) => s.trim().toLowerCase())
+	.filter(Boolean);
+
+function isOriginAllowed(req: import("http").IncomingMessage): boolean {
+	if (ALLOWED_ORIGINS.length === 0) return true; // no restriction when not configured
+	const origin = (req.headers.origin || "").trim().toLowerCase();
+	if (!origin) return false; // browser WebSocket always sends Origin
+	return ALLOWED_ORIGINS.includes(origin);
+}
+
 wss.on("connection", async (ws, req) => {
-  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-  const serverId = url.searchParams.get("serverId");
-  const token = url.searchParams.get("token");
+	if (!isOriginAllowed(req)) {
+		ws.send(JSON.stringify({ type: "error", data: "Origin 不被允许" }));
+		ws.close();
+		return;
+	}
+
+	const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+	const serverId = url.searchParams.get("serverId");
+	const token = url.searchParams.get("token");
 
   if (!serverId || !token) {
     ws.send(JSON.stringify({ type: "error", data: "缺少 serverId 或 token 参数" }));

@@ -15,6 +15,7 @@ SITE_NAME="${SITE_NAME:-${APP_NAME}}"
 SERVICE_PREFIX="${SERVICE_PREFIX:-${APP_SLUG}}"
 APP_DIR="${APP_DIR:-/opt/${APP_SLUG}}"
 APP_USER_EXPLICIT="${APP_USER+x}"
+DESTDIR="${DESTDIR:-}"
 APP_USER="${APP_USER:-${APP_SLUG}}"
 if [ -z "${APP_USER_EXPLICIT}" ]; then
   case "${APP_DIR}" in
@@ -366,7 +367,8 @@ install_systemd() {
 			src="${APP_DIR}/deploy/systemd/whrkhldsb-${svc}.service.example"
 		fi
 		[ -f "${src}" ] || fail "Systemd template not found: ${src}"
-		local dst="/etc/systemd/system/${SERVICE_PREFIX}-${svc}.service"
+		local dst="${DESTDIR}/etc/systemd/system/${SERVICE_PREFIX}-${svc}.service"
+		mkdir -p "$(dirname "${dst}")"
 		sed \
 			-e "s#{{SITE_NAME}}#${SITE_NAME}#g" \
 			-e "s#{{APP_DIR}}#${APP_DIR}#g" \
@@ -385,7 +387,7 @@ install_caddy() {
   [ "${SKIP_CADDY}" = "1" ] && { warn "Skipping Caddy setup"; return; }
   [ -n "${DOMAIN}" ] || { warn "DOMAIN is empty; skipping Caddy config"; return; }
   log "Installing Caddy reverse proxy for ${DOMAIN}"
-  install -m 0644 "${APP_DIR}/deploy/Caddyfile.example" /etc/caddy/Caddyfile
+	install -m 0644 "${APP_DIR}/deploy/Caddyfile.example" "${DESTDIR}/etc/caddy/Caddyfile"
   local escaped_domain escaped_next escaped_ssh_ws
   escaped_domain="$(shell_escape_sed_replacement "${DOMAIN}")"
   escaped_next="$(shell_escape_sed_replacement "${NEXT_HOST}:${NEXT_PORT}")"
@@ -394,8 +396,8 @@ install_caddy() {
     -e "s#your-domain.example#${escaped_domain}#g" \
     -e "s#127.0.0.1:3000#${escaped_next}#g" \
     -e "s#127.0.0.1:3001#${escaped_ssh_ws}#g" \
-    /etc/caddy/Caddyfile
-  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+	"${DESTDIR}/etc/caddy/Caddyfile"
+	caddy validate --config "${DESTDIR}/etc/caddy/Caddyfile" --adapter caddyfile
   systemctl enable caddy
 }
 
