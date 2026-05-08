@@ -1,6 +1,10 @@
 import { requireSession } from "@/lib/auth/require-session";
 import { MediaPreviewClient } from "./media-preview-client";
 import { TextPreviewClient } from "./text-preview-client";
+import { MarkdownPreviewClient } from "./markdown-preview-client";
+import { CsvPreviewClient } from "./csv-preview-client";
+import { OfficePreviewClient } from "./office-preview-client";
+import { ArchivePreviewClient } from "./archive-preview-client";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +20,82 @@ type PreviewPageProps = {
 	}>;
 };
 
+const OFFICE_MIME_TYPES = [
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"application/msword",
+	"application/vnd.ms-excel",
+	"application/vnd.ms-powerpoint",
+];
+
+const ARCHIVE_MIME_TYPES = [
+	"application/zip",
+	"application/x-zip-compressed",
+	"application/x-rar-compressed",
+	"application/x-7z-compressed",
+	"application/gzip",
+	"application/x-tar",
+	"application/java-archive",
+	"application/x-bzip2",
+	"application/x-xz",
+];
+
+const CSV_MIME_TYPES = [
+	"text/csv",
+	"application/csv",
+	"text/tab-separated-values",
+];
+
+const MARKDOWN_MIME_TYPES = [
+	"text/markdown",
+	"text/x-markdown",
+];
+
+const EXTENDED_TEXT_MIME_TYPES = [
+	"application/json",
+	"application/ld+json",
+	"application/xml",
+	"application/javascript",
+	"application/x-javascript",
+	"application/x-sh",
+	"application/x-yaml",
+	"application/yaml",
+	"application/toml",
+	"application/x-ndjson",
+	"application/x-httpd-php",
+	"application/x-python-code",
+	"application/x-ruby",
+	"application/sql",
+	"application/x-shellscript",
+	"application/x-config",
+	"application/x-sublime-config",
+	"image/svg+xml",
+];
+
+/* Fallback: detect type by file extension when MIME is generic/unknown */
+function detectByExtension(name: string): { isMarkdown: boolean; isCsv: boolean; isText: boolean } {
+	const ext = name.toLowerCase().split(".").pop() ?? "";
+	const mdExts = ["md", "mdx", "markdown", "mkd"];
+	const csvExts = ["csv", "tsv", "tab"];
+	const textExts = [
+		"txt", "log", "json", "jsonl", "json5", "yaml", "yml", "toml", "ini", "cfg", "conf",
+		"js", "jsx", "ts", "tsx", "mjs", "cjs",
+		"py", "pyw", "rb", "rs", "go", "java", "kt", "c", "cpp", "h", "hpp",
+		"sh", "bash", "zsh", "fish",
+		"html", "htm", "xml", "xsl", "xslt", "css", "scss", "sass", "less",
+		"sql", "php", "lua", "r", "pl", "ps1", "bat", "cmd",
+		"env", "gitignore", "dockerignore", "editorconfig", "prettierrc", "eslintrc",
+		"tf", "hcl", "nix", "dhall",
+		"svg", "svelte", "vue",
+	];
+	return {
+		isMarkdown: mdExts.includes(ext),
+		isCsv: csvExts.includes(ext),
+		isText: textExts.includes(ext),
+	};
+}
+
 export default async function FilePreviewPage({ searchParams }: PreviewPageProps) {
 	await requireSession();
 
@@ -30,20 +110,28 @@ export default async function FilePreviewPage({ searchParams }: PreviewPageProps
 
 	const downloadUrl = href ? `${href}${href.includes("?") ? "&" : "?"}download=1` : "";
 
-	const isImage = mimeType.startsWith("image/");
+	const isImage = mimeType.startsWith("image/") && mimeType !== "image/svg+xml";
+	const isSvg = mimeType === "image/svg+xml";
 	const isVideo = mimeType.startsWith("video/");
 	const isAudio = mimeType.startsWith("audio/");
 	const isPdf = mimeType === "application/pdf";
+
+	// Primary MIME detection
+	const isMarkdown = MARKDOWN_MIME_TYPES.includes(mimeType) || (mimeType.startsWith("text/") && mimeType !== "text/csv" && (name.toLowerCase().endsWith(".md") || name.toLowerCase().endsWith(".mdx") || name.toLowerCase().endsWith(".markdown")));
+	const isCsv = CSV_MIME_TYPES.includes(mimeType);
 	const isText =
 		mimeType.startsWith("text/") ||
-		[
-			"application/json",
-			"application/xml",
-			"application/javascript",
-			"application/x-javascript",
-			"application/x-sh",
-		].includes(mimeType);
-	const largeTextWarning = isText && size > 512 * 1024;
+		EXTENDED_TEXT_MIME_TYPES.includes(mimeType);
+	const isOffice = OFFICE_MIME_TYPES.includes(mimeType);
+	const isArchive = ARCHIVE_MIME_TYPES.includes(mimeType);
+
+	// Extension fallback when MIME is empty or generic
+	const ext = detectByExtension(name);
+	const resolvedIsMarkdown = isMarkdown || (!mimeType && ext.isMarkdown);
+	const resolvedIsCsv = isCsv || (!mimeType && ext.isCsv) || (mimeType === "text/plain" && ext.isCsv);
+	const resolvedIsText = isText || ext.isText || isSvg;
+
+	const largeTextWarning = (resolvedIsText || resolvedIsMarkdown) && size > 512 * 1024;
 
 	return (
 		<main className="min-h-screen bg-slate-950 text-white">
@@ -70,7 +158,7 @@ export default async function FilePreviewPage({ searchParams }: PreviewPageProps
 							⬇ 下载
 						</a>
 					) : null}
-				</div>
+			</div>
 
 				{/* Large file warning */}
 				{largeTextWarning ? (
@@ -105,8 +193,22 @@ export default async function FilePreviewPage({ searchParams }: PreviewPageProps
 							title={name}
 							className="h-[85vh] w-full rounded-2xl border-0"
 						/>
-					) : isText && href ? (
-						<TextPreviewClient href={href} />
+					) : resolvedIsMarkdown && href ? (
+						<MarkdownPreviewClient href={href} />
+					) : resolvedIsCsv && href ? (
+						<CsvPreviewClient href={href} />
+					) : resolvedIsText && href ? (
+						<TextPreviewClient href={href} name={name} />
+					) : isOffice && href ? (
+						<OfficePreviewClient href={href} name={name} driver={driver} />
+					) : isArchive ? (
+						<ArchivePreviewClient
+							href={href}
+							name={name}
+							nodeId={nodeId}
+							relativePath={relativePath}
+							driver={driver}
+						/>
 					) : (
 						<div className="flex flex-col items-center gap-4 py-16 text-slate-400">
 							<span className="text-6xl">📄</span>

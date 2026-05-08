@@ -40,17 +40,18 @@ export function RenameInlineForm({
  if (onRefresh) { onRefresh(); } else { router.refresh(); }
  }
 
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={handleToggle}
-        className="rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100 transition hover:bg-amber-400/20"
-      >
-        重命名
-      </button>
-    );
-  }
+	if (!editing) {
+		return (
+			<button
+				type="button"
+				onClick={handleToggle}
+				title="重命名"
+				className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-amber-400/30 bg-amber-400/10 text-amber-100 transition hover:bg-amber-400/20"
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+			</button>
+		);
+	}
 
   const lastSlashIndex = currentPath.lastIndexOf("/");
   const pathPrefix = lastSlashIndex >= 0 ? currentPath.substring(0, lastSlashIndex + 1) : "";

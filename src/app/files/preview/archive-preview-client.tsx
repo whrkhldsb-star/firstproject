@@ -1,0 +1,151 @@
+"use client";
+
+import { useState, useTransition } from "react";
+
+type ArchiveEntry = {
+	name: string;
+	size: number;
+	isDirectory: boolean;
+	modified?: string;
+};
+
+export function ArchivePreviewClient({
+	href,
+	name,
+	nodeId,
+	relativePath,
+	driver,
+}: {
+	href: string;
+	name: string;
+	nodeId: string;
+	relativePath: string;
+	driver: string;
+}) {
+	const [entries, setEntries] = useState<ArchiveEntry[] | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [loading, setLoading] = useState(false);
+	const [extracting, startExtractTransition] = useTransition();
+	const [extractResult, setExtractResult] = useState<string | null>(null);
+
+	async function loadArchiveContents() {
+		setLoading(true);
+		setError(null);
+		try {
+			const params = new URLSearchParams({
+				nodeId,
+				relativePath,
+				driver,
+				name,
+			});
+			const res = await fetch(`/api/files/archive-list?${params.toString()}`);
+			if (!res.ok) {
+				const data = await res.json().catch(() => ({}));
+				throw new Error(data.error || `请求失败 (${res.status})`);
+			}
+			const data = await res.json();
+			setEntries(data.entries ?? []);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "未知错误");
+		} finally {
+			setLoading(false);
+		}
+	}
+
+	function handleExtract() {
+		startExtractTransition(async () => {
+			setExtractResult(null);
+			try {
+				const res = await fetch("/api/files/extract", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ nodeId, relativePath, driver, name }),
+				});
+				const data = await res.json().catch(() => ({}));
+				if (!res.ok) throw new Error(data.error || `解压失败 (${res.status})`);
+				setExtractResult(data.message || "解压完成");
+			} catch (err) {
+				setExtractResult(err instanceof Error ? err.message : "解压失败");
+			}
+		});
+	}
+
+	function formatSize(bytes: number) {
+		if (bytes === 0) return "-";
+		const units = ["B", "KB", "MB", "GB"];
+		let i = 0;
+		let size = bytes;
+		while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+		return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+	}
+
+	return (
+		<div className="space-y-4">
+			<div className="flex flex-wrap items-center gap-3">
+				<button
+					type="button"
+					onClick={loadArchiveContents}
+					disabled={loading}
+					className="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/20 disabled:opacity-50 disabled:cursor-not-allowed"
+				>
+					{loading ? "加载中…" : entries ? "刷新列表" : "查看压缩包内容"}
+				</button>
+				{entries && entries.length > 0 && driver === "LOCAL" ? (
+					<button
+						type="button"
+						onClick={handleExtract}
+						disabled={extracting}
+						className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-2 text-sm font-medium text-emerald-100 transition hover:bg-emerald-400/20 disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						{extracting ? "解压中…" : "在线解压"}
+					</button>
+				) : null}
+			</div>
+
+			{error ? (
+				<div className="rounded-2xl border border-rose-400/30 bg-rose-400/5 px-4 py-3 text-sm text-rose-200">
+					{error}
+				</div>
+			) : null}
+
+			{extractResult ? (
+				<div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/5 px-4 py-3 text-sm text-emerald-200">
+					{extractResult}
+				</div>
+			) : null}
+
+			{entries && entries.length > 0 ? (
+				<div className="rounded-2xl border border-white/10 bg-slate-950/50 overflow-hidden">
+					<div className="grid grid-cols-[auto_minmax(0,2fr)_100px] gap-4 bg-white/5 px-4 py-2.5 text-xs uppercase tracking-wider text-slate-400 font-medium">
+						<div />
+						<div>名称</div>
+						<div className="text-right">大小</div>
+					</div>
+					<div className="divide-y divide-white/[0.04] max-h-[50vh] overflow-y-auto">
+						{entries.map((entry, i) => (
+							<div
+								key={`${entry.name}-${i}`}
+								className="grid grid-cols-[auto_minmax(0,2fr)_100px] gap-4 items-center px-4 py-2 text-sm hover:bg-white/[0.02] transition"
+							>
+								<div className="text-slate-500">
+									{entry.isDirectory ? (
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+									) : (
+										<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+									)}
+								</div>
+								<div className="truncate text-white">{entry.name}</div>
+								<div className="text-right text-slate-400 text-xs">{entry.isDirectory ? "目录" : formatSize(entry.size)}</div>
+							</div>
+						))}
+					</div>
+					<div className="px-4 py-2 text-xs text-slate-500 border-t border-white/[0.04]">
+						共 {entries.length} 项
+					</div>
+				</div>
+			) : entries && entries.length === 0 ? (
+				<div className="text-sm text-slate-400">压缩包为空</div>
+			) : null}
+		</div>
+	);
+}

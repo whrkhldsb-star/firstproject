@@ -42,17 +42,18 @@ export function MoveInlineForm({
  if (onRefresh) { onRefresh(); } else { router.refresh(); }
  }
 
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={handleToggle}
-        className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-100 transition hover:bg-emerald-400/20"
-      >
-        移动
-      </button>
-    );
-  }
+	if (!editing) {
+		return (
+			<button
+				type="button"
+				onClick={handleToggle}
+				title="移动"
+				className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-400/30 bg-emerald-400/10 text-emerald-100 transition hover:bg-emerald-400/20"
+			>
+				<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+			</button>
+		);
+	}
 
   const lastSlashIndex = relativePath.lastIndexOf("/");
   const currentDir = lastSlashIndex >= 0 ? relativePath.substring(0, lastSlashIndex) : "";

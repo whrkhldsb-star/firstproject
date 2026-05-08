@@ -1,33 +1,223 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 type PreviewState = { loading: true } | { loading: false; content: string | null; error: string | null };
 
-export function TextPreviewClient({ href }: { href: string }) {
+const LANG_MAP: Record<string, string> = {
+	js: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript",
+	mjs: "javascript", cjs: "javascript",
+	py: "python", pyw: "python",
+	json: "json", jsonl: "json",
+	yml: "yaml", yaml: "yaml",
+	toml: "toml", ini: "toml", cfg: "toml", conf: "toml",
+	sh: "shell", bash: "shell", zsh: "shell", fish: "shell",
+	html: "html", htm: "html", xml: "xml", xsl: "xml", xslt: "xml", svg: "xml",
+	css: "css", scss: "css", sass: "css", less: "css",
+	sql: "sql",
+	go: "go", rs: "rust", java: "java", kt: "kotlin",
+	c: "c", h: "c", cpp: "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp",
+	rb: "ruby", php: "php", lua: "lua",
+	dockerfile: "dockerfile", makefile: "makefile",
+	env: "env", gitignore: "env",
+	log: "log",
+};
+
+function getLangFromName(name?: string): string {
+	if (!name) return "text";
+	const lower = name.toLowerCase();
+	if (lower === "dockerfile" || lower === "makefile" || lower === "vagrantfile" || lower === "gemfile") return LANG_MAP[lower] ?? "text";
+	const ext = lower.split(".").pop() ?? "";
+	return LANG_MAP[ext] ?? "text";
+}
+
+/* Simple token-based syntax highlighting using regex.
+   Strategy: extract comments/strings first as placeholders, highlight keywords, then restore. */
+
+type TokenRange = { start: number; end: number; type: string };
+
+function highlightLine(line: string, lang: string): string {
+	if (lang === "text" || lang === "log") return escapeHtml(line);
+	if (lang === "json") return highlightJson(line);
+	
+	let escaped = escapeHtml(line);
+	
+	const rules = getRules(lang);
+	for (const rule of rules) {
+		escaped = escaped.replace(rule.regex, rule.replace);
+	}
+	return escaped;
+}
+
+function getRules(lang: string): { regex: RegExp; replace: string }[] {
+	const commentRule = (prefix: string) => ({
+		regex: new RegExp(`(${escapeRegex(escapeHtml(prefix))}.*)$`),
+		replace: '<span class="text-slate-500 italic">$1</span>',
+	});
+	
+	const jsKeywords = "break|case|catch|class|const|continue|debugger|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|this|throw|try|typeof|var|void|while|with|yield|async|await|interface|type|enum|implements|declare|namespace|module|as|readonly|abstract|override|private|protected|public";
+	const pyKeywords = "and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield|True|False|None";
+	const shellKeywords = "if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|export|source|local|readonly|set|unset|echo|cd|mkdir|rm|cp|mv|cat|grep|sed|awk|find|chmod|chown|sudo|apt|yum|npm|pip|git|docker|systemctl";
+	
+	const kw = (words: string) => ({
+		regex: new RegExp(`\\b(${words})\\b`, "g"),
+		replace: '<span class="text-blue-400 font-medium">$1</span>',
+	});
+	
+	const strRule = {
+		regex: /(&quot;[^&]*?&quot;|&#39;[^&]*?&#39;|`[^`]*?`)/g,
+		replace: '<span class="text-emerald-400">$1</span>',
+	};
+	
+	const numRule = {
+		regex: /\b(\d+\.?\d*)\b/g,
+		replace: '<span class="text-amber-400">$1</span>',
+	};
+	
+	const decoratorRule = {
+		regex: /(@\w+)/g,
+		replace: '<span class="text-purple-400">$1</span>',
+	};
+	
+	const common: { regex: RegExp; replace: string }[] = [strRule, numRule];
+	
+	switch (lang) {
+		case "javascript":
+		case "typescript":
+			return [commentRule("//"), kw(jsKeywords), decoratorRule, ...common];
+		case "python":
+			return [commentRule("#"), kw(pyKeywords), decoratorRule, ...common];
+		case "shell":
+			return [commentRule("#"), kw(shellKeywords), ...common];
+		case "yaml":
+		case "toml":
+			return [
+				commentRule("#"),
+				{ regex: /^(\s*[\w.-]+)(\s*[:=]\s*)/gm, replace: '<span class="text-cyan-400">$1</span>$2' },
+				...common,
+			];
+		case "env":
+			return [
+				commentRule("#"),
+				{ regex: /^(\s*[\w.-]+)(=)/gm, replace: '<span class="text-cyan-400">$1</span><span class="text-slate-500">=</span>' },
+				...common,
+			];
+		case "html":
+		case "xml":
+			return [
+				commentRule("<!--"),
+				{ regex: /(&lt;\/?[\w.-]+)/g, replace: '<span class="text-blue-400">$1</span>' },
+				{ regex: /(\s[\w.-]+)(=)/g, replace: '<span class="text-cyan-300">$1</span><span class="text-slate-500">=</span>' },
+				strRule,
+			];
+		case "css":
+			return [
+				commentRule("/*"),
+				{ regex: /([.#]?[\w-]+)\s*\{/g, replace: '<span class="text-cyan-300">$1</span> {' },
+				{ regex: /([\w-]+)(\s*:)/g, replace: '<span class="text-white">$1</span>$2' },
+				strRule,
+			];
+		case "sql":
+			return [
+				commentRule("--"),
+				kw("SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|ALTER|DROP|INDEX|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AND|OR|NOT|IN|IS|NULL|LIKE|ORDER|BY|GROUP|HAVING|LIMIT|OFFSET|AS|DISTINCT|COUNT|SUM|AVG|MAX|MIN|UNION|ALL|EXISTS|BETWEEN|CASE|WHEN|THEN|ELSE|END|ASC|DESC|PRIMARY|KEY|FOREIGN|REFERENCES|CONSTRAINT|DEFAULT|AUTO_INCREMENT|IF|BEGIN|COMMIT|ROLLBACK|TRANSACTION|VIEW|PROCEDURE|FUNCTION|TRIGGER|GRANT|REVOKE|DATABASE|SCHEMA"),
+				...common,
+			];
+		case "go":
+			return [
+				commentRule("//"),
+				kw("break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var|nil|true|false|iota|append|cap|close|copy|delete|len|make|new|panic|print|println|recover"),
+				...common,
+			];
+		case "rust":
+			return [
+				commentRule("//"),
+				kw("as|async|await|break|const|continue|crate|dyn|else|enum|extern|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|type|unsafe|use|where|while|yield|true|false|Some|None|Ok|Err"),
+				...common,
+			];
+		case "ruby":
+			return [
+				commentRule("#"),
+				kw("alias|and|begin|break|case|class|def|defined|do|else|elsif|end|ensure|for|if|in|module|next|nil|not|or|redo|rescue|retry|return|self|super|then|undef|unless|until|when|while|yield|true|false|require|include|attr|raise|puts"),
+				decoratorRule,
+				...common,
+			];
+		case "php":
+			return [
+				commentRule("//"),
+				kw("abstract|and|array|as|break|callable|case|catch|class|clone|const|continue|declare|default|die|do|echo|else|elseif|empty|endfor|endforeach|endif|endswitch|endwhile|eval|exit|extends|final|finally|for|foreach|function|global|goto|if|implements|include|instanceof|insteadof|interface|isset|list|namespace|new|or|print|private|protected|public|require|return|static|switch|throw|trait|try|unset|use|var|while|xor|yield|true|false|null"),
+				{ regex: /(\$\w+)/g, replace: '<span class="text-purple-300">$1</span>' },
+				...common,
+			];
+		default:
+			return common;
+	}
+}
+
+function highlightJson(line: string): string {
+	let escaped = escapeHtml(line);
+	// keys
+	escaped = escaped.replace(/^\s*(&quot;[^&]+?&quot;)\s*(:)/, '<span class="text-cyan-400">$1</span><span class="text-slate-500">:</span>');
+	// string values
+	escaped = escaped.replace(/:\s*(&quot;[^&]*?&quot;)([,\s}]*)$/, ': <span class="text-emerald-400">$1</span>$2');
+	// standalone strings in arrays
+	escaped = escaped.replace(/^\s*(&quot;[^&]*?&quot;)([,\s\]]*)$/, '<span class="text-emerald-400">$1</span>$2');
+	// numbers
+	escaped = escaped.replace(/:\s*(\d+\.?\d*)([,\s}]*)$/, ': <span class="text-amber-400">$1</span>$2');
+	// booleans & null
+	escaped = escaped.replace(/:\s*(true|false|null)([,\s}]*)$/, ': <span class="text-blue-400">$1</span>$2');
+	return escaped;
+}
+
+function escapeHtml(s: string): string {
+	return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function escapeRegex(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const LANG_LABELS: Record<string, string> = {
+	javascript: "JavaScript", typescript: "TypeScript", python: "Python", json: "JSON",
+	yaml: "YAML", toml: "TOML/INI", shell: "Shell", html: "HTML", xml: "XML",
+	css: "CSS", sql: "SQL", go: "Go", rust: "Rust", ruby: "Ruby", php: "PHP",
+	c: "C", cpp: "C++", java: "Java", kotlin: "Kotlin", lua: "Lua",
+	dockerfile: "Dockerfile", makefile: "Makefile", env: "Env", text: "文本", log: "日志",
+};
+
+export function TextPreviewClient({ href, name }: { href: string; name?: string }) {
 	const [state, setState] = useState<PreviewState>({ loading: true });
+	const [searchQuery, setSearchQuery] = useState("");
+	const [jumpLine, setJumpLine] = useState("");
+	const lineRef = useRef<Map<number, HTMLDivElement>>(new Map());
+	const containerRef = useRef<HTMLDivElement>(null);
+
+	const lang = useMemo(() => getLangFromName(name), [name]);
 
 	useEffect(() => {
 		let cancelled = false;
-
 		fetch(href)
 			.then(async (res) => {
 				if (!res.ok) throw new Error(`加载失败: ${res.status}`);
 				const text = await res.text();
-				if (!cancelled) {
-					setState({ loading: false, content: text, error: null });
-				}
+				if (!cancelled) setState({ loading: false, content: text, error: null });
 			})
 			.catch((err) => {
-				if (!cancelled) {
-					setState({ loading: false, content: null, error: err instanceof Error ? err.message : "加载失败" });
-				}
+				if (!cancelled) setState({ loading: false, content: null, error: err instanceof Error ? err.message : "加载失败" });
 			});
-
-		return () => {
-			cancelled = true;
-		};
+		return () => { cancelled = true; };
 	}, [href]);
+
+	const handleJumpToLine = useCallback(() => {
+		const num = parseInt(jumpLine, 10);
+		if (isNaN(num) || num < 1) return;
+		const el = lineRef.current.get(num - 1);
+		if (el) {
+			el.scrollIntoView({ behavior: "smooth", block: "center" });
+			el.classList.add("bg-amber-400/10");
+			setTimeout(() => el.classList.remove("bg-amber-400/10"), 2000);
+		}
+	}, [jumpLine]);
 
 	if (state.loading) {
 		return (
@@ -47,21 +237,80 @@ export function TextPreviewClient({ href }: { href: string }) {
 	}
 
 	const lines = (state.content ?? "").split("\n");
+	const totalLines = lines.length;
+
+	const highlightSearch = (html: string): string => {
+		if (!searchQuery.trim()) return html;
+		try {
+			const escaped = escapeRegex(searchQuery);
+			return html.replace(new RegExp(`(${escaped})`, "gi"), '<mark class="bg-amber-400/30 text-amber-200 rounded px-0.5">$1</mark>');
+		} catch {
+			return html;
+		}
+	};
 
 	return (
-		<div className="overflow-auto rounded-2xl bg-slate-950 p-4 text-sm leading-relaxed">
-			<pre className="font-mono text-slate-300">
-				<code>
-					{lines.map((line, i) => (
-						<div key={i} className="flex">
-							<span className="mr-4 inline-block w-8 select-none text-right text-slate-600">
-								{i + 1}
-							</span>
-							<span className="whitespace-pre-wrap break-all">{line}</span>
-						</div>
-					))}
-				</code>
-			</pre>
+		<div className="space-y-3">
+			{/* Toolbar */}
+			<div className="flex flex-wrap items-center gap-2">
+				<span className="rounded-full bg-blue-400/10 px-3 py-1 text-xs font-medium text-blue-300 border border-blue-400/30">
+					{LANG_LABELS[lang] ?? lang.toUpperCase()}
+				</span>
+				<span className="text-xs text-slate-500">{totalLines} 行</span>
+				<div className="flex-1" />
+				{/* Search */}
+				<div className="flex items-center gap-1">
+					<input
+						type="text"
+						value={searchQuery}
+						onChange={(e) => setSearchQuery(e.target.value)}
+						placeholder="搜索..."
+						className="w-28 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 placeholder:text-slate-600 focus:border-cyan-500/50 focus:outline-none"
+					/>
+				</div>
+				{/* Jump to line */}
+				<div className="flex items-center gap-1">
+					<input
+						type="text"
+						value={jumpLine}
+						onChange={(e) => setJumpLine(e.target.value)}
+						onKeyDown={(e) => e.key === "Enter" && handleJumpToLine()}
+						placeholder="跳转行号"
+						className="w-20 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-300 placeholder:text-slate-600 focus:border-cyan-500/50 focus:outline-none"
+					/>
+					<button
+						type="button"
+						onClick={handleJumpToLine}
+						className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700"
+					>
+						跳转
+					</button>
+				</div>
+			</div>
+
+			{/* Code area */}
+			<div ref={containerRef} className="overflow-auto rounded-2xl bg-slate-950 p-4 text-sm leading-relaxed max-h-[75vh]">
+				<pre className="font-mono text-slate-300">
+					<code>
+						{lines.map((line, i) => {
+							let html = highlightLine(line, lang);
+							html = highlightSearch(html);
+							return (
+								<div
+									key={i}
+									ref={(el) => { if (el) lineRef.current.set(i, el); }}
+									className="flex transition-colors duration-500"
+								>
+									<span className="mr-4 inline-block w-12 select-none text-right text-slate-600 shrink-0">
+										{i + 1}
+									</span>
+									<span className="whitespace-pre-wrap break-all" dangerouslySetInnerHTML={{ __html: html }} />
+								</div>
+							);
+						})}
+					</code>
+				</pre>
+			</div>
 		</div>
 	);
 }

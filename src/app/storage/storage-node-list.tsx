@@ -103,9 +103,10 @@ function StorageNodeCard({
 							<button
 								type="button"
 								onClick={() => setEditing((prev) => !prev)}
-								className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-100 transition hover:bg-cyan-400/20"
+								title={editing ? "收起" : "编辑"}
+								className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-cyan-400/30 bg-cyan-400/10 text-cyan-100 transition hover:bg-cyan-400/20"
 							>
-								{editing ? "收起" : "编辑"}
+								<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
 							</button>
 							{!editing ? (
 								<StorageNodeDeleteButton storageNodeId={node.id} nodeName={node.name} />

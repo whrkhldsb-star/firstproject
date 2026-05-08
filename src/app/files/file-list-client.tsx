@@ -47,9 +47,59 @@ function buildDownloadHref(entry: StorageEntry) {
 	return `/api/storage/local?path=${encodeURIComponent(entry.relativePath)}`;
 }
 
+const OFFICE_MIME_SET = new Set([
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+	"application/msword",
+	"application/vnd.ms-excel",
+	"application/vnd.ms-powerpoint",
+]);
+
+const ARCHIVE_MIME_SET = new Set([
+	"application/zip",
+	"application/x-zip-compressed",
+	"application/x-rar-compressed",
+	"application/x-7z-compressed",
+	"application/gzip",
+	"application/x-tar",
+	"application/java-archive",
+	"application/x-bzip2",
+	"application/x-xz",
+]);
+
+const EXTENDED_PREVIEW_MIMES = new Set([
+	"image/svg+xml",
+	"application/json",
+	"application/ld+json",
+	"application/xml",
+	"application/javascript",
+	"application/x-javascript",
+	"application/x-sh",
+	"application/x-yaml",
+	"application/yaml",
+	"application/toml",
+	"application/x-ndjson",
+	"application/sql",
+	"application/x-shellscript",
+	"text/csv",
+	"text/tab-separated-values",
+	"text/markdown",
+	"text/x-markdown",
+]);
+
 function getPreviewHref(entry: StorageEntry) {
 	const mime = entry.mimeType ?? "";
-	if (mime.startsWith("video/") || mime.startsWith("audio/") || mime.startsWith("image/") || mime === "application/pdf" || mime.startsWith("text/")) {
+	const isPreviewableMime =
+		mime.startsWith("video/") ||
+		mime.startsWith("audio/") ||
+		mime.startsWith("image/") ||
+		mime === "application/pdf" ||
+		mime.startsWith("text/") ||
+		OFFICE_MIME_SET.has(mime) ||
+		ARCHIVE_MIME_SET.has(mime) ||
+		EXTENDED_PREVIEW_MIMES.has(mime);
+	if (isPreviewableMime) {
 		const downloadHref =
 			entry.directAccess.mode === "managed-download" && entry.directAccess.href
 				? entry.directAccess.href
@@ -396,23 +446,26 @@ export function FileListClient({
 		: "当前目录暂无内容。";
 
 	/* helper to render file actions for any view */
-	function renderFileActions(entry: StorageEntry, downloadUrl: string, previewHref: string, compact = false) {
-		const btnClass = compact
-			? "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white"
-			: "inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition border";
-		const previewClass = compact ? btnClass : `${btnClass} border-cyan-400/30 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25 hover:border-cyan-400/50 hover:text-white`;
-		const downloadClass = compact ? btnClass.replace("text-slate-300", "text-cyan-200") : `${btnClass} border-cyan-400/30 bg-cyan-500/15 text-cyan-100 hover:bg-cyan-500/25 hover:border-cyan-400/50 hover:text-white`;
+	function renderFileActions(entry: StorageEntry, downloadUrl: string, previewHref: string, _compact = false) {
 		return (
-			<div className="flex items-center gap-2 flex-wrap">
+			<div className="flex items-center gap-1 flex-wrap">
 				{entry.previewable ? (
-					<Link href={previewHref} className={previewClass} title="预览">
+					<Link
+						href={previewHref}
+						title="预览"
+						className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-cyan-400/30 bg-cyan-500/10 text-cyan-100 transition hover:bg-cyan-500/20"
+					>
 						<PreviewIcon />
-						{!compact && <span>预览</span>}
 					</Link>
 				) : null}
-				<Link href={downloadUrl} className={downloadClass} title="下载" aria-label={`下载 ${entry.name}`} download>
+				<Link
+					href={downloadUrl}
+					title="下载"
+					aria-label={`下载 ${entry.name}`}
+					download
+					className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10 hover:text-white"
+				>
 					<DownloadIcon />
-					{!compact && <span>下载</span>}
 				</Link>
 				{canEditLocalFiles ? (
 					<RenameInlineForm
@@ -534,28 +587,26 @@ export function FileListClient({
 								</div>
 							</div>
 
-							{/* Action bar — always visible, clear buttons */}
-							<div className="flex items-center justify-center gap-2 px-3 py-3 border-t border-white/[0.04] bg-slate-950/40">
+						{/* Action bar — always visible, icon buttons */}
+							<div className="flex items-center justify-center gap-1 px-3 py-3 border-t border-white/[0.04] bg-slate-950/40">
 								{entry.previewable ? (
 									<Link
 										href={previewHref}
 										title="预览"
-										className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border border-cyan-400/25 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 hover:text-white transition"
+										className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-cyan-400/30 bg-cyan-500/10 text-cyan-100 transition hover:bg-cyan-500/20"
 									>
 										<PreviewIcon />
-										预览
 									</Link>
 								) : null}
-							<Link
-								href={downloadUrl}
-								title="下载"
-								aria-label={`下载 ${entry.name}`}
-								download
-								className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 hover:text-white transition"
-							>
-								<DownloadIcon />
-								下载
-							</Link>
+								<Link
+									href={downloadUrl}
+									title="下载"
+									aria-label={`下载 ${entry.name}`}
+									download
+									className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10 hover:text-white"
+								>
+									<DownloadIcon />
+								</Link>
 								{canEditLocalFiles ? (
 									<RenameInlineForm
 										fileEntryId={entry.id}
@@ -625,7 +676,7 @@ export function FileListClient({
 								<span>{folder.fileCount + folder.folderCount} 项</span>
 							</div>
 						</div>
-						<div className="shrink-0 flex items-center gap-2">
+						<div className="shrink-0 flex items-center gap-1">
 							<button
 								type="button"
 								onClick={() => navigateToFolder(folder.path)}
@@ -728,7 +779,7 @@ export function FileListClient({
 			<>
 			{/* Desktop table view (md+) */}
 			<div className="hidden md:block">
-				<div className="grid grid-cols-[40px_40px_minmax(0,2fr)_100px_100px_120px_140px_minmax(240px,1fr)] bg-white/5 px-5 py-3 text-xs uppercase tracking-[0.15em] text-slate-400 font-medium">
+				<div className="grid grid-cols-[40px_40px_minmax(0,2fr)_100px_100px_120px_140px_auto] bg-white/5 px-5 py-3 text-xs uppercase tracking-[0.15em] text-slate-400 font-medium">
 					<div>
 						<input
 							type="checkbox"
@@ -756,7 +807,7 @@ export function FileListClient({
 					{sortedFolders.map((folder) => (
 						<div
 							key={folder.path}
-							className="grid grid-cols-[40px_40px_minmax(0,2fr)_100px_100px_120px_140px_minmax(240px,1fr)] items-center gap-4 px-5 py-3 text-sm hover:bg-white/[0.02] transition"
+							className="grid grid-cols-[40px_40px_minmax(0,2fr)_100px_100px_120px_140px_auto] items-center gap-4 px-5 py-3 text-sm hover:bg-white/[0.02] transition"
 						>
 							<div>
 								<input type="checkbox" disabled className="rounded h-4 w-4 accent-cyan-400 opacity-30" />
@@ -777,7 +828,7 @@ export function FileListClient({
 							<div className="text-slate-500">{folder.fileCount + folder.folderCount} 项</div>
 							<div className="text-slate-500">—</div>
 							<div className="text-slate-500">—</div>
-							<div className="flex flex-wrap gap-2">
+							<div className="flex flex-wrap gap-1">
 								<button
 									type="button"
 									onClick={() => navigateToFolder(folder.path)}
@@ -819,7 +870,7 @@ export function FileListClient({
 						return (
 							<div
 								key={entry.id}
-								className={`grid grid-cols-[40px_40px_minmax(0,2fr)_100px_100px_120px_140px_minmax(240px,1fr)] items-center gap-4 px-5 py-3 text-sm hover:bg-white/[0.02] transition ${isChecked ? "bg-cyan-400/[0.04]" : ""}`}
+								className={`grid grid-cols-[40px_40px_minmax(0,2fr)_100px_100px_120px_140px_auto] items-center gap-4 px-5 py-3 text-sm hover:bg-white/[0.02] transition ${isChecked ? "bg-cyan-400/[0.04]" : ""}`}
 							>
 								<div>
 									<input
@@ -849,25 +900,25 @@ export function FileListClient({
 								<div className="text-slate-500 text-xs">
 									{entry.updatedAt ? formatDate(entry.updatedAt) : "—"}
 								</div>
-								<div className="flex flex-wrap gap-1.5">
-									{entry.previewable ? (
-										<Link
-											href={previewHref}
-											className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium border border-cyan-400/25 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 transition"
-										>
-											<PreviewIcon />
-											预览
-										</Link>
-									) : null}
-							<Link
-								href={downloadUrl}
-								aria-label={`下载 ${entry.name}`}
-								download
-								className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 transition"
-							>
-										<DownloadIcon />
-										下载
+							<div className="flex flex-wrap gap-1">
+								{entry.previewable ? (
+									<Link
+										href={previewHref}
+										title="预览"
+										className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-cyan-400/30 bg-cyan-500/10 text-cyan-100 transition hover:bg-cyan-500/20"
+									>
+										<PreviewIcon />
 									</Link>
+								) : null}
+								<Link
+									href={downloadUrl}
+									title="下载"
+									aria-label={`下载 ${entry.name}`}
+									download
+									className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10 hover:text-white"
+								>
+									<DownloadIcon />
+								</Link>
 									{canEditLocalFiles ? (
 										<RenameInlineForm
 											fileEntryId={entry.id}
@@ -933,7 +984,7 @@ export function FileListClient({
 							</button>
 						</div>
 						{canEditLocalFiles ? (
-							<div className="mt-2 flex flex-wrap gap-2 pl-9">
+							<div className="mt-2 flex flex-wrap gap-1 pl-9">
 								<RenameInlineForm
 									fileEntryId={folder.entryId ?? ""}
 									currentName={folder.displayName ?? folder.name}
@@ -990,25 +1041,25 @@ export function FileListClient({
 									</div>
 								</div>
 							</div>
-							<div className="mt-2 flex flex-wrap gap-2 pl-9">
+						<div className="mt-2 flex flex-wrap gap-1 pl-9">
 								{entry.previewable ? (
 									<Link
 										href={previewHref}
-										className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border border-cyan-400/25 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20 transition"
+										title="预览"
+										className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-cyan-400/30 bg-cyan-500/10 text-cyan-100 transition hover:bg-cyan-500/20"
 									>
 										<PreviewIcon />
-										预览
 									</Link>
 								) : null}
-							<Link
-								href={downloadUrl}
-								aria-label={`下载 ${entry.name}`}
-								download
-								className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10 transition"
-							>
-								<DownloadIcon />
-								下载
-							</Link>
+								<Link
+									href={downloadUrl}
+									title="下载"
+									aria-label={`下载 ${entry.name}`}
+									download
+									className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10 hover:text-white"
+								>
+									<DownloadIcon />
+								</Link>
 								{canEditLocalFiles ? (
 									<RenameInlineForm
 										fileEntryId={entry.id}

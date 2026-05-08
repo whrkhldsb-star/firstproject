@@ -231,11 +231,11 @@ describe("FilesPage", () => {
 	expect(screen.getAllByRole("link", { name: "下载 notes.txt" }).length).toBeGreaterThan(0);
  const deleteButtons = screen.queryAllByTestId("delete-btn");
  const renameButtons = screen.queryAllByTestId("rename-btn");
- if (deleteButtons.length === 0) {
- const allButtons = screen.getAllByRole("button");
- expect(allButtons.some((btn) => btn.textContent === "删除")).toBe(true);
- expect(allButtons.some((btn) => btn.textContent === "重命名")).toBe(true);
- } else {
+	if (deleteButtons.length === 0) {
+		const allButtons = screen.getAllByRole("button");
+		expect(allButtons.some((btn) => btn.getAttribute("title") === "删除" || btn.textContent?.includes("删除"))).toBe(true);
+		expect(allButtons.some((btn) => btn.getAttribute("title") === "重命名" || btn.textContent?.includes("重命名"))).toBe(true);
+	} else {
  expect(deleteButtons.some((btn) => btn.getAttribute("data-entry-name") === "notes.txt")).toBe(true);
  expect(renameButtons.some((btn) => btn.getAttribute("data-current-name") === "notes.txt")).toBe(true);
  }
