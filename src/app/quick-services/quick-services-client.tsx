@@ -23,11 +23,13 @@ const CATEGORY_LABELS: Record<string, string> = {
 	storage: "☁️ 存储网盘",
 	media: "🎬 媒体影视",
 	devtools: "🔧 开发工具",
+	notes: "📝 笔记文档",
 	network: "🌐 网络监控",
+	blog: "✍️ 博客建站",
 	other: "📦 其他服务",
 };
 
-const CATEGORY_ORDER = ["storage", "media", "devtools", "network", "other"];
+const CATEGORY_ORDER = ["storage", "media", "devtools", "notes", "network", "blog", "other"];
 
 type Tab = "store" | "installed";
 
