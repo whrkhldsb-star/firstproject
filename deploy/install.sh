@@ -55,7 +55,9 @@ need_root() { [ "$(id -u)" -eq 0 ] || fail "Please run as root (or via sudo)."; 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 shell_escape_sed_replacement() {
-  printf '%s' "$1" | sed -e 's/[\&]/\\&/g'
+ # Escape &, \, and / for use in sed s### replacement strings.
+ # Also escape newlines (rare in secrets but breaks sed if present).
+ printf '%s' "$1" | sed -e 's/[&\\/]/\\&/g'
 }
 
 resolve_command() {
@@ -145,17 +147,27 @@ install_packages() {
 
 	# ── Phase 3: Caddy ───────────────────────────────────────────────
 	if [ "${SKIP_CADDY}" = "1" ]; then
-		log "  ○ Caddy: skipped (SKIP_CADDY=1)"
+		log " ○ Caddy: skipped (SKIP_CADDY=1)"
 	elif have_cmd caddy; then
-		log "  ✓ Caddy already installed: $(caddy version 2>/dev/null || echo 'present')"
+		log " ✓ Caddy already installed: $(caddy version 2>/dev/null || echo 'present')"
 	else
-		log "  ✗ Caddy missing — installing"
+		# Stop Apache/Nginx if they are occupying port 80/443 — Caddy needs them.
+		if ss -tlnp 2>/dev/null | grep -q ':80\b'; then
+			local port80_owner
+			port80_owner="$(ss -tlnp 2>/dev/null | grep ':80\b' | head -1 | grep -oP 'users=\(\("\K[^"]+' || true)"
+			if [ -n "${port80_owner}" ]; then
+				log "Stopping ${port80_owner} on port 80 to make room for Caddy"
+				systemctl stop "${port80_owner}" 2>/dev/null || true
+				systemctl disable "${port80_owner}" 2>/dev/null || true
+			fi
+		fi
+		log " ✗ Caddy missing — installing"
 		apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
 		curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 		curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
 		apt-get update
 		apt-get install -y caddy
-		log "  ✓ Caddy installed: $(caddy version 2>/dev/null || echo 'done')"
+		log " ✓ Caddy installed: $(caddy version 2>/dev/null || echo 'done')"
 	fi
 
 	# ── Phase 4: PostgreSQL ───────────────────────────────────────────
@@ -195,10 +207,10 @@ sync_source() {
       git clone "${REPO_URL}" "${APP_DIR}"
     fi
   else
-    if have_cmd rsync; then
-      rsync -a --delete \
-        --exclude .git --exclude node_modules --exclude .next --exclude backups --exclude storage --exclude tmp --exclude uploads --exclude downloads --exclude logs --exclude .env.local \
-        "${SOURCE_DIR}/" "${APP_DIR}/"
+ if have_cmd rsync; then
+ rsync -a --delete \
+ --exclude .git --exclude node_modules --exclude .next --exclude backups --exclude storage --exclude tmp --exclude uploads --exclude downloads --exclude logs --exclude .env.local --exclude prisma/migrations \
+ "${SOURCE_DIR}/" "${APP_DIR}/"
     else
       warn "rsync not found; falling back to tar-based source sync"
       (cd "${SOURCE_DIR}" && tar \
@@ -244,25 +256,26 @@ reject_unsafe_production_flags() {
 }
 
 validate_env() {
-  [ -f "${ENV_FILE}" ] || fail "Missing ${ENV_FILE}. Create it from deploy/env.production.example first."
-  # shellcheck disable=SC1090
-  set -a; source "${ENV_FILE}"; set +a
-  local required
-  for required in DATABASE_URL AUTH_SESSION_SECRET ADMIN_INITIAL_PASSWORD; do
-    [ -n "${!required:-}" ] || fail "${required} is required in ${ENV_FILE}."
-    if is_placeholder_value "${!required:-}"; then
-      fail "${required} still contains a placeholder in ${ENV_FILE}."
-    fi
-  done
-  if [ "${#AUTH_SESSION_SECRET}" -lt 32 ]; then
-    fail "AUTH_SESSION_SECRET must be at least 32 characters. Generate one with: openssl rand -base64 48"
-  fi
-  if [ -n "${SSH_WS_ALLOWED_ORIGINS:-}" ] && is_placeholder_value "${SSH_WS_ALLOWED_ORIGINS}"; then
-    fail "SSH_WS_ALLOWED_ORIGINS still contains a placeholder in ${ENV_FILE}."
-  fi
-  if [ -n "${NEXT_PUBLIC_APP_PUBLIC_LABEL:-}" ] && is_placeholder_value "${NEXT_PUBLIC_APP_PUBLIC_LABEL}"; then
-    fail "NEXT_PUBLIC_APP_PUBLIC_LABEL still contains a placeholder in ${ENV_FILE}."
-  fi
+ [ -f "${ENV_FILE}" ] || fail "Missing ${ENV_FILE}. Create it from deploy/env.production.example first."
+ # Re-source .env.local to pick up any values written by auto_generate_env_secrets.
+ # shellcheck disable=SC1090
+ set -a; source "${ENV_FILE}"; set +a
+ local required
+ for required in DATABASE_URL AUTH_SESSION_SECRET ADMIN_INITIAL_PASSWORD; do
+ [ -n "${!required:-}" ] || fail "${required} is required in ${ENV_FILE}."
+ if is_placeholder_value "${!required:-}"; then
+ fail "${required} still contains a placeholder in ${ENV_FILE}."
+ fi
+ done
+ if [ "${#AUTH_SESSION_SECRET}" -lt 32 ]; then
+ fail "AUTH_SESSION_SECRET must be at least 32 characters. Generate one with: openssl rand -base64 48"
+ fi
+ if [ -n "${SSH_WS_ALLOWED_ORIGINS:-}" ] && is_placeholder_value "${SSH_WS_ALLOWED_ORIGINS}"; then
+ fail "SSH_WS_ALLOWED_ORIGINS still contains a placeholder in ${ENV_FILE}."
+ fi
+ if [ -n "${NEXT_PUBLIC_APP_PUBLIC_LABEL:-}" ] && is_placeholder_value "${NEXT_PUBLIC_APP_PUBLIC_LABEL}"; then
+ fail "NEXT_PUBLIC_APP_PUBLIC_LABEL still contains a placeholder in ${ENV_FILE}."
+ fi
   reject_unsafe_production_flags
 }
 
@@ -275,80 +288,111 @@ auto_generate_env_secrets() {
 
  # ── AUTH_SESSION_SECRET ──────────────────────────────────────────
  if is_placeholder_value "${AUTH_SESSION_SECRET:-}" || [ -z "${AUTH_SESSION_SECRET:-}" ]; then
-  local secret
-  secret="$(openssl rand -base64 48)"
-  local escaped
-  escaped="$(shell_escape_sed_replacement "${secret}")"
-  sed -i "s#^AUTH_SESSION_SECRET=.*#AUTH_SESSION_SECRET=${escaped}#" "${ENV_FILE}"
-  AUTH_SESSION_SECRET="${secret}"
-  log "Auto-generated AUTH_SESSION_SECRET"
-  changed=1
+ local secret
+ secret="$(openssl rand -base64 48)"
+ local escaped
+ escaped="$(shell_escape_sed_replacement "${secret}")"
+ sed -i "s#^AUTH_SESSION_SECRET=.*#AUTH_SESSION_SECRET=${escaped}#" "${ENV_FILE}"
+ AUTH_SESSION_SECRET="${secret}"
+ log "Auto-generated AUTH_SESSION_SECRET"
+ changed=1
  fi
 
  # ── ADMIN_INITIAL_PASSWORD ───────────────────────────────────────
  if is_placeholder_value "${ADMIN_INITIAL_PASSWORD:-}" || [ -z "${ADMIN_INITIAL_PASSWORD:-}" ]; then
-  local admin_pw
-  admin_pw="$(openssl rand -base64 24)"
-  local escaped_pw
-  escaped_pw="$(shell_escape_sed_replacement "${admin_pw}")"
-  sed -i "s#^ADMIN_INITIAL_PASSWORD=.*#ADMIN_INITIAL_PASSWORD=${escaped_pw}#" "${ENV_FILE}"
-  ADMIN_INITIAL_PASSWORD="${admin_pw}"
-  warn "============================================================"
-  warn "  Auto-generated ADMIN_INITIAL_PASSWORD (save this!):"
-  warn "  ${admin_pw}"
-  warn "============================================================"
-  changed=1
+ local admin_pw
+ admin_pw="$(openssl rand -base64 24)"
+ local escaped_pw
+ escaped_pw="$(shell_escape_sed_replacement "${admin_pw}")"
+ sed -i "s#^ADMIN_INITIAL_PASSWORD=.*#ADMIN_INITIAL_PASSWORD=${escaped_pw}#" "${ENV_FILE}"
+ ADMIN_INITIAL_PASSWORD="${admin_pw}"
+ warn "============================================================"
+ warn " Auto-generated ADMIN_INITIAL_PASSWORD (save this!):"
+ warn " ${admin_pw}"
+ warn "============================================================"
+ changed=1
  fi
 
  # ── NEXT_PUBLIC_APP_PUBLIC_LABEL ─────────────────────────────────
- if is_placeholder_value "${NEXT_PUBLIC_APP_PUBLIC_LABEL:-}" && [ -n "${DOMAIN:-}" ]; then
-  local escaped
-  escaped="$(shell_escape_sed_replacement "${DOMAIN}")"
-  sed -i "s#^NEXT_PUBLIC_APP_PUBLIC_LABEL=.*#NEXT_PUBLIC_APP_PUBLIC_LABEL=${escaped}#" "${ENV_FILE}"
-  log "Auto-set NEXT_PUBLIC_APP_PUBLIC_LABEL=${DOMAIN}"
-  changed=1
+ if is_placeholder_value "${NEXT_PUBLIC_APP_PUBLIC_LABEL:-}"; then
+ if [ -n "${DOMAIN:-}" ]; then
+ local escaped
+ escaped="$(shell_escape_sed_replacement "${DOMAIN}")"
+ sed -i "s#^NEXT_PUBLIC_APP_PUBLIC_LABEL=.*#NEXT_PUBLIC_APP_PUBLIC_LABEL=${escaped}#" "${ENV_FILE}"
+ log "Auto-set NEXT_PUBLIC_APP_PUBLIC_LABEL=${DOMAIN}"
+ changed=1
+ else
+ # DOMAIN not set — clear the placeholder so validate_env won't reject it
+ sed -i 's#^NEXT_PUBLIC_APP_PUBLIC_LABEL=.*#NEXT_PUBLIC_APP_PUBLIC_LABEL=#' "${ENV_FILE}"
+ NEXT_PUBLIC_APP_PUBLIC_LABEL=""
+ warn "DOMAIN not set; cleared NEXT_PUBLIC_APP_PUBLIC_LABEL placeholder"
+ fi
  fi
 
- # ── SSH_WS_ALLOWED_ORIGINS ───────────────────────────────────────
- if is_placeholder_value "${SSH_WS_ALLOWED_ORIGINS:-}" && [ -n "${DOMAIN:-}" ]; then
-  local origin="https://${DOMAIN}"
-  local escaped
-  escaped="$(shell_escape_sed_replacement "${origin}")"
-  sed -i "s#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=${escaped}#" "${ENV_FILE}"
-  log "Auto-set SSH_WS_ALLOWED_ORIGINS=${origin}"
-  changed=1
- fi
+	# ── SSH_WS_ALLOWED_ORIGINS ───────────────────────────────────────
+	if is_placeholder_value "${SSH_WS_ALLOWED_ORIGINS:-}" || [ -z "${SSH_WS_ALLOWED_ORIGINS:-}" ]; then
+		if [ -n "${DOMAIN:-}" ]; then
+			local origin="https://${DOMAIN}"
+			local escaped
+			escaped="$(shell_escape_sed_replacement "${origin}")"
+			sed -i "s#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=${escaped}#" "${ENV_FILE}"
+			SSH_WS_ALLOWED_ORIGINS="${origin}"
+			log "Auto-set SSH_WS_ALLOWED_ORIGINS=${origin}"
+			changed=1
+		else
+			# No DOMAIN — auto-detect external IP for IP-only deploy
+			local ext_ip
+			ext_ip="$(ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)" || true
+			if [ -z "${ext_ip}" ]; then
+				ext_ip="$(curl -fsS --max-time 3 ifconfig.me 2>/dev/null)" || true
+			fi
+			if [ -n "${ext_ip}" ]; then
+				local origin="http://${ext_ip}:${NEXT_PORT}"
+				local escaped
+				escaped="$(shell_escape_sed_replacement "${origin}")"
+				sed -i "s#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=${escaped}#" "${ENV_FILE}"
+				SSH_WS_ALLOWED_ORIGINS="${origin}"
+				log "Auto-set SSH_WS_ALLOWED_ORIGINS=${origin} (IP-only mode)"
+				changed=1
+			else
+				# Cannot detect IP — clear placeholder so validate_env won't reject it
+				sed -i 's#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=#' "${ENV_FILE}"
+				SSH_WS_ALLOWED_ORIGINS=""
+				warn "DOMAIN not set and cannot detect external IP; cleared SSH_WS_ALLOWED_ORIGINS. Set it manually."
+			fi
+		fi
+	fi
 
  # ── AUTH_SESSION_COOKIE_NAME, ISSUER, AUDIENCE ───────────────────
  if is_placeholder_value "${AUTH_SESSION_COOKIE_NAME:-}" || [ -z "${AUTH_SESSION_COOKIE_NAME:-}" ]; then
-  local cookie_name="${APP_SLUG}-session"
-  local escaped
-  escaped="$(shell_escape_sed_replacement "${cookie_name}")"
-  sed -i "s#^AUTH_SESSION_COOKIE_NAME=.*#AUTH_SESSION_COOKIE_NAME=${escaped}#" "${ENV_FILE}"
-  log "Auto-set AUTH_SESSION_COOKIE_NAME=${cookie_name}"
-  changed=1
+ local cookie_name="${APP_SLUG}-session"
+ local escaped
+ escaped="$(shell_escape_sed_replacement "${cookie_name}")"
+ sed -i "s#^AUTH_SESSION_COOKIE_NAME=.*#AUTH_SESSION_COOKIE_NAME=${escaped}#" "${ENV_FILE}"
+ log "Auto-set AUTH_SESSION_COOKIE_NAME=${cookie_name}"
+ changed=1
  fi
 
  if is_placeholder_value "${AUTH_SESSION_ISSUER:-}" || [ -z "${AUTH_SESSION_ISSUER:-}" ]; then
-  local issuer="${APP_SLUG}"
-  local escaped
-  escaped="$(shell_escape_sed_replacement "${issuer}")"
-  sed -i "s#^AUTH_SESSION_ISSUER=.*#AUTH_SESSION_ISSUER=${escaped}#" "${ENV_FILE}"
-  log "Auto-set AUTH_SESSION_ISSUER=${issuer}"
-  changed=1
+ local issuer="${APP_SLUG}"
+ local escaped
+ escaped="$(shell_escape_sed_replacement "${issuer}")"
+ sed -i "s#^AUTH_SESSION_ISSUER=.*#AUTH_SESSION_ISSUER=${escaped}#" "${ENV_FILE}"
+ log "Auto-set AUTH_SESSION_ISSUER=${issuer}"
+ changed=1
  fi
 
  if is_placeholder_value "${AUTH_SESSION_AUDIENCE:-}" || [ -z "${AUTH_SESSION_AUDIENCE:-}" ]; then
-  local audience="${APP_SLUG}-console"
-  local escaped
-  escaped="$(shell_escape_sed_replacement "${audience}")"
-  sed -i "s#^AUTH_SESSION_AUDIENCE=.*#AUTH_SESSION_AUDIENCE=${escaped}#" "${ENV_FILE}"
-  log "Auto-set AUTH_SESSION_AUDIENCE=${audience}"
-  changed=1
+ local audience="${APP_SLUG}-console"
+ local escaped
+ escaped="$(shell_escape_sed_replacement "${audience}")"
+ sed -i "s#^AUTH_SESSION_AUDIENCE=.*#AUTH_SESSION_AUDIENCE=${escaped}#" "${ENV_FILE}"
+ log "Auto-set AUTH_SESSION_AUDIENCE=${audience}"
+ changed=1
  fi
 
  if [ "${changed}" -eq 1 ]; then
-  chmod 600 "${ENV_FILE}"
+ chmod 600 "${ENV_FILE}"
  fi
 }
 
@@ -393,16 +437,26 @@ setup_postgres() {
 	pg_user_exists="$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${PG_DB_USER}'" 2>/dev/null || true)"
 	if [ "${pg_user_exists}" != "1" ]; then
 		if [ -z "${PG_DB_PASSWORD}" ]; then
-			PG_DB_PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
+			# Generate alphanumeric-only password to avoid sed/SQL escaping issues
+			PG_DB_PASSWORD="$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)"
+			# Save generated password to .env.local
+			local escaped_pg_pw
+			escaped_pg_pw="$(shell_escape_sed_replacement "${PG_DB_PASSWORD}")"
+			sed -i "s#^PG_DB_PASSWORD=.*#PG_DB_PASSWORD=${escaped_pg_pw}#" "${ENV_FILE}"
 			warn "Generated random PostgreSQL password for ${PG_DB_USER}; saved to ${ENV_FILE}"
 		fi
 		log "Creating PostgreSQL user ${PG_DB_USER}"
 		sudo -u postgres psql -c "CREATE USER ${PG_DB_USER} WITH ENCRYPTED PASSWORD '${PG_DB_PASSWORD}';" 2>/dev/null || warn "Failed to create PostgreSQL user (may already exist)"
 	else
-		# If user exists but we have a password, try to update it
-		if [ -n "${PG_DB_PASSWORD}" ]; then
-			sudo -u postgres psql -c "ALTER USER ${PG_DB_USER} WITH ENCRYPTED PASSWORD '${PG_DB_PASSWORD}';" 2>/dev/null || true
+		# User exists — ensure it has a password set (handle empty-password scenario)
+		if [ -z "${PG_DB_PASSWORD}" ]; then
+			PG_DB_PASSWORD="$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)"
+			local escaped_pg_pw
+			escaped_pg_pw="$(shell_escape_sed_replacement "${PG_DB_PASSWORD}")"
+			sed -i "s#^PG_DB_PASSWORD=.*#PG_DB_PASSWORD=${escaped_pg_pw}#" "${ENV_FILE}"
+			warn "Generated random PostgreSQL password for existing user ${PG_DB_USER}; saved to ${ENV_FILE}"
 		fi
+		sudo -u postgres psql -c "ALTER USER ${PG_DB_USER} WITH ENCRYPTED PASSWORD '${PG_DB_PASSWORD}';" 2>/dev/null || true
 	fi
 
 	pg_db_exists="$(sudo -u postgres psql -lqtAc "SELECT 1 FROM pg_database WHERE datname='${PG_DB_NAME}'" 2>/dev/null || true)"
@@ -411,12 +465,29 @@ setup_postgres() {
 		sudo -u postgres psql -c "CREATE DATABASE ${PG_DB_NAME} OWNER ${PG_DB_USER};" 2>/dev/null || warn "Failed to create PostgreSQL database (may already exist)"
 	fi
 
-	# Update DATABASE_URL in .env.local if it is still a placeholder
-	local generated_url="postgresql://${PG_DB_USER}:${PG_DB_PASSWORD}@127.0.0.1:5432/${PG_DB_NAME}"
+	# Always sync DATABASE_URL with PG_DB_PASSWORD to prevent mismatch
+	local generated_url
+	if [ -n "${PG_DB_PASSWORD}" ]; then
+		generated_url="postgresql://${PG_DB_USER}:${PG_DB_PASSWORD}@127.0.0.1:5432/${PG_DB_NAME}"
+	else
+		generated_url="postgresql://${PG_DB_USER}@127.0.0.1:5432/${PG_DB_NAME}"
+	fi
 	local current_url
 	current_url="$(grep '^DATABASE_URL=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+	# Update if placeholder, empty, or password portion doesn't match PG_DB_PASSWORD
+	local need_url_update=0
 	if is_placeholder_value "${current_url}" || [ -z "${current_url}" ]; then
-		log "Setting DATABASE_URL in ${ENV_FILE}"
+		need_url_update=1
+	elif [ -n "${PG_DB_PASSWORD}" ]; then
+		# Extract password from current DATABASE_URL and compare
+		local current_pw
+		current_pw="$(printf '%s' "${current_url}" | sed -n 's#^postgresql://[^:]*:\([^@]*\)@.*#\1#p' 2>/dev/null || true)"
+		if [ "${current_pw}" != "${PG_DB_PASSWORD}" ]; then
+			need_url_update=1
+		fi
+	fi
+	if [ "${need_url_update}" -eq 1 ]; then
+		log "Updating DATABASE_URL in ${ENV_FILE} (syncing with PG_DB_PASSWORD)"
 		local escaped_url
 		escaped_url="$(shell_escape_sed_replacement "${generated_url}")"
 		sed -i "s#^DATABASE_URL=.*#DATABASE_URL=${escaped_url}#" "${ENV_FILE}"
@@ -424,14 +495,19 @@ setup_postgres() {
 }
 
 build_app() {
-  log "Installing dependencies and building application"
-  cd "${APP_DIR}"
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
-  npm ci
-  npm run prisma:generate
+ log "Installing dependencies and building application"
+ cd "${APP_DIR}"
+ # Ensure native build tools are available (needed by npm ci / node-gyp)
+ if ! have_cmd make || ! have_cmd gcc; then
+ log "Installing build-essential (make, gcc, etc.) for native modules"
+ apt-get install -y build-essential python3
+ fi
+ set -a
+ # shellcheck disable=SC1090
+ source "${ENV_FILE}"
+ set +a
+ npm ci
+ npm run prisma:generate
  if [ "${SKIP_DB_SETUP}" != "1" ]; then
  npm run prisma:deploy
  fi
@@ -490,17 +566,40 @@ install_caddy() {
     -e "s#127.0.0.1:3001#${escaped_ssh_ws}#g" \
 	"${DESTDIR}/etc/caddy/Caddyfile"
 	caddy validate --config "${DESTDIR}/etc/caddy/Caddyfile" --adapter caddyfile
-  systemctl enable caddy
+	systemctl enable caddy
+	# Ensure Apache/Nginx is not stealing port 80/443 from Caddy.
+	if systemctl is-active --quiet apache2 2>/dev/null; then
+		log "Stopping Apache2 (Caddy will handle ports 80/443)"
+		systemctl stop apache2
+		systemctl disable apache2
+	fi
+	if systemctl is-active --quiet nginx 2>/dev/null; then
+		log "Stopping Nginx (Caddy will handle ports 80/443)"
+		systemctl stop nginx
+		systemctl disable nginx
+	fi
 }
 
 restart_services() {
-  [ "${SKIP_RESTART}" = "1" ] && { warn "Skipping service restart"; return; }
-  log "Restarting services"
-  systemctl restart "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service"
-  [ "${SKIP_CADDY}" = "1" ] || systemctl reload caddy || systemctl restart caddy
-  sleep 2
-  systemctl --no-pager --lines=20 status "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service" || true
-  curl -fsS "http://${NEXT_HOST}:${NEXT_PORT}/login" >/dev/null || warn "Local login page did not return 2xx; check logs."
+ [ "${SKIP_RESTART}" = "1" ] && { warn "Skipping service restart"; return; }
+ log "Restarting services"
+ systemctl restart "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service"
+ [ "${SKIP_CADDY}" = "1" ] || systemctl reload caddy || systemctl restart caddy
+ # Wait for Next.js to be ready (standalone server can take a few seconds)
+ local retries=15
+ while [ "${retries}" -gt 0 ]; do
+ if curl -fsS "http://${NEXT_HOST}:${NEXT_PORT}/login" >/dev/null 2>&1; then
+ log " ✓ Next.js is responding on port ${NEXT_PORT}"
+ break
+ fi
+ retries=$((retries - 1))
+ sleep 2
+ done
+ if [ "${retries}" -eq 0 ]; then
+ warn "Next.js did not respond on port ${NEXT_PORT} within 30s; check logs:"
+ journalctl --no-pager --lines=30 -u "${SERVICE_PREFIX}-next.service" || true
+ fi
+ systemctl --no-pager --lines=20 status "${SERVICE_PREFIX}-next.service" "${SERVICE_PREFIX}-ssh-ws.service" || true
 }
 
 main() {
