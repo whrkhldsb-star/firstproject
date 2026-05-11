@@ -6,12 +6,13 @@ export async function createAnnouncement(input: { title: string; body: string; l
 }
 
 export async function listActiveAnnouncements(now = new Date()) {
-  return prisma.announcement.findMany({
-    where: { published: true, startsAt: { lte: now }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-    orderBy: [{ pinned: "desc" }, { startsAt: "desc" }],
-  });
+	return prisma.announcement.findMany({
+		where: { published: true, startsAt: { lte: now }, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+		orderBy: [{ pinned: "desc" }, { startsAt: "desc" }],
+		take: 50,
+	});
 }
 
 export async function listAnnouncements() {
-  return prisma.announcement.findMany({ orderBy: [{ pinned: "desc" }, { createdAt: "desc" }] });
+	return prisma.announcement.findMany({ orderBy: [{ pinned: "desc" }, { createdAt: "desc" }], take: 200 });
 }

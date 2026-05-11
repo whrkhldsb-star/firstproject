@@ -1,3 +1,4 @@
+import { CronExpressionParser } from "cron-parser";
 import { prisma } from "@/lib/db";
 
 /* ── Types ────────────────────────────────────────────────── */
@@ -32,16 +33,16 @@ export function describeCron(expr: string): string {
 	return expr;
 }
 
-/* ── Compute next run time (simplified) ───────────────────── */
+/* ── Compute next run time ────────────────────────────────── */
 
 export function computeNextRun(cronExpression: string): Date {
-	const now = new Date();
-	const parts = cronExpression.trim().split(/\s+/);
-	if (parts.length !== 5) return new Date(now.getTime() + 60_000);
-	const [min] = parts;
-	// Simplified: just add 1 hour for complex expressions
-	const addMs = min === "*" ? 60_000 : min.startsWith("*/") ? parseInt(min.slice(2)) * 60_000 : 3600_000;
-	return new Date(now.getTime() + addMs);
+	try {
+		const interval = CronExpressionParser.parse(cronExpression, { currentDate: new Date() });
+		return interval.next().toDate();
+	} catch {
+		// 无效的 cron 表达式，默认1分钟后重试
+		return new Date(Date.now() + 60_000);
+	}
 }
 
 /* ── CRUD ─────────────────────────────────────────────────── */

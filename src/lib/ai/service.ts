@@ -1,4 +1,14 @@
 import { prisma } from "@/lib/db";
+import { encrypt, decrypt, isEncrypted } from "@/lib/crypto/service";
+
+/* ── Safe decrypt helper ──────────────────────────────────── */
+function safeDecryptApiKey(stored: string): string {
+	try {
+		return isEncrypted(stored) ? decrypt(stored) : stored;
+	} catch {
+		return stored;
+	}
+}
 
 /* ── Types ──────────────────────────────────────────────────── */
 interface CreateProviderInput {
@@ -69,8 +79,8 @@ export async function createProvider(input: CreateProviderInput) {
     data: {
       name: input.name.trim(),
       type: (input.type as "OPENAI_COMPATIBLE") || "OPENAI_COMPATIBLE",
-      apiKey: input.apiKey.trim(),
-      baseUrl: input.baseUrl?.trim() || "https://api.openai.com/v1",
+		apiKey: encrypt(input.apiKey.trim()),
+		baseUrl: input.baseUrl?.trim() || "https://api.openai.com/v1",
       defaultModel: input.defaultModel?.trim() || "gpt-4o",
       availableModels: JSON.stringify(input.availableModels ?? []),
       isDefault: input.isDefault ?? false,
@@ -82,14 +92,15 @@ export async function createProvider(input: CreateProviderInput) {
 }
 
 export async function listProviders(userId: string) {
-  const providers = await prisma.aiProvider.findMany({
-    where: { createdBy: userId },
-    orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
-  });
+	const providers = await prisma.aiProvider.findMany({
+		where: { createdBy: userId },
+		orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+		take: 100,
+	});
   // Mask API keys for listing — only show last 4 chars
   return providers.map((p) => ({
     ...p,
-    apiKey: "••••" + p.apiKey.slice(-4),
+		apiKey: "••••" + safeDecryptApiKey(p.apiKey).slice(-4),
     apiKeyFull: undefined,
   }));
 }
@@ -117,7 +128,7 @@ export async function updateProvider(id: string, userId: string, input: UpdatePr
     data: {
       ...(input.name !== undefined && { name: input.name.trim() }),
       ...(input.type !== undefined && { type: input.type as "OPENAI_COMPATIBLE" }),
-      ...(input.apiKey !== undefined && { apiKey: input.apiKey.trim() }),
+	...(input.apiKey !== undefined && { apiKey: encrypt(input.apiKey.trim()) }),
       ...(input.baseUrl !== undefined && { baseUrl: input.baseUrl.trim() }),
       ...(input.defaultModel !== undefined && { defaultModel: input.defaultModel.trim() }),
       ...(input.availableModels !== undefined && { availableModels: JSON.stringify(input.availableModels) }),
@@ -159,11 +170,12 @@ export async function createConversation(input: CreateConversationInput) {
 }
 
 export async function listConversations(userId: string) {
-  return prisma.aiConversation.findMany({
-    where: { createdBy: userId },
-    orderBy: { updatedAt: "desc" },
-    include: { provider: { select: { id: true, name: true, type: true } } },
-  });
+	return prisma.aiConversation.findMany({
+		where: { createdBy: userId },
+		orderBy: { updatedAt: "desc" },
+		include: { provider: { select: { id: true, name: true, type: true } } },
+		take: 200,
+	});
 }
 
 export async function getConversationById(id: string, userId: string) {
@@ -270,11 +282,12 @@ export async function fetchModelsFromProvider(providerId: string, userId: string
   const baseUrl = provider.baseUrl.replace(/\/+$/, "");
 
   // Try the OpenAI-compatible /models endpoint
-  const url = `${baseUrl}/models`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${provider.apiKey}`,
+		const rawApiKey = safeDecryptApiKey(provider.apiKey);
+		const url = `${baseUrl}/models`;
+		const response = await fetch(url, {
+			method: "GET",
+			headers: {
+				Authorization: `Bearer ${rawApiKey}`,
     },
   });
 
@@ -413,21 +426,22 @@ interface ChatCompletionRequest {
 }
 
 export async function sendChatRequest(req: ChatCompletionRequest, userId: string) {
-  const provider = await prisma.aiProvider.findFirst({
-    where: { id: req.providerId, createdBy: userId, enabled: true },
-  });
-  if (!provider) throw new Error("提供商不存在或已禁用");
+	const provider = await prisma.aiProvider.findFirst({
+		where: { id: req.providerId, createdBy: userId, enabled: true },
+	});
+	if (!provider) throw new Error("提供商不存在或已禁用");
 
-  const baseUrl = provider.baseUrl.replace(/\/+$/, "");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  let url: string;
-  let body: Record<string, unknown>;
+	const rawApiKey = safeDecryptApiKey(provider.apiKey);
+	const baseUrl = provider.baseUrl.replace(/\/+$/, "");
+	const headers: Record<string, string> = { "Content-Type": "application/json" };
+	let url: string;
+	let body: Record<string, unknown>;
 
   if (provider.type === "ANTHROPIC") {
     // ── Anthropic Messages API ──
     // https://docs.anthropic.com/en/api/messages
     url = `${baseUrl}/messages`;
-    headers["x-api-key"] = provider.apiKey;
+		headers["x-api-key"] = rawApiKey;
     headers["anthropic-version"] = "2023-06-01";
 
     // Extract system prompt from messages (Anthropic sends it separately)
@@ -479,7 +493,7 @@ export async function sendChatRequest(req: ChatCompletionRequest, userId: string
     // ── Google Gemini API ──
     // Use OpenAI-compatible proxy if available; otherwise native format
     url = `${baseUrl}/chat/completions`;
-    headers["Authorization"] = `Bearer ${provider.apiKey}`;
+    headers["Authorization"] = `Bearer ${rawApiKey}`;
     body = {
       model: req.model,
       messages: req.messages,
@@ -491,7 +505,7 @@ export async function sendChatRequest(req: ChatCompletionRequest, userId: string
   } else {
     // ── OpenAI / OpenAI-Compatible ──
     url = `${baseUrl}/chat/completions`;
-    headers["Authorization"] = `Bearer ${provider.apiKey}`;
+    headers["Authorization"] = `Bearer ${rawApiKey}`;
     body = {
       model: req.model,
       messages: req.messages,

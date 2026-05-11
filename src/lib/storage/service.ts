@@ -18,60 +18,13 @@ import {
 	type UpdateFileEntryInput,
 	type UpdateStorageNodeInput,
 } from "./schema";
-
-const OFFICE_MIMETYPES = new Set([
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-	"application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
-	"application/msword", // .doc
-	"application/vnd.ms-excel", // .xls
-	"application/vnd.ms-powerpoint", // .ppt
-]);
-
-const ARCHIVE_MIMETYPES = new Set([
-	"application/zip",
-	"application/x-zip-compressed",
-	"application/x-rar-compressed",
-	"application/x-7z-compressed",
-	"application/gzip",
-	"application/x-tar",
-	"application/java-archive",
-]);
-
-const EDITABLE_TEXT_MIME_PREFIXES = ["text/"];
-const EDITABLE_TEXT_MIME_TYPES = new Set([
-  "application/json",
-  "application/ld+json",
-  "application/xml",
-  "application/javascript",
-  "application/x-javascript",
-  "application/x-sh",
-  "image/svg+xml",
-]);
-
-const EDITABLE_TEXT_EXTENSIONS = new Set([
-  ".txt",
-  ".md",
-  ".json",
-  ".js",
-  ".jsx",
-  ".ts",
-  ".tsx",
-  ".css",
-  ".scss",
-  ".html",
-  ".xml",
-  ".yml",
-  ".yaml",
-  ".csv",
-  ".log",
-  ".env",
-  ".py",
-  ".sh",
-  ".svg",
-]);
-
-const MAX_EDITABLE_FILE_SIZE_BYTES = 512 * 1024;
+import {
+	EDITABLE_TEXT_MIME_PREFIXES,
+	EDITABLE_TEXT_MIME_TYPES,
+	EDITABLE_TEXT_EXTENSIONS,
+	MAX_EDITABLE_FILE_SIZE_BYTES,
+	isPreviewableMime,
+} from "./mime-constants";
 
 function buildStorageConnectionSummary(input: {
   driver: "LOCAL" | "SFTP";
@@ -581,7 +534,7 @@ export async function listFileEntries(storageNodeId?: string) {
 				sizeLabel: entry.size == null ? "-" : formatFileSize(Number(entry.size)),
 				directAccess,
 				localEditable: entry.storageNode.driver === "LOCAL" && isEditableTextFile({ entryType: entry.entryType, name: entry.name, mimeType: entry.mimeType }),
-				previewable: Boolean(entry.mimeType?.startsWith("video/") || entry.mimeType?.startsWith("audio/") || entry.mimeType?.startsWith("image/") || entry.mimeType === "application/pdf" || entry.mimeType?.startsWith("text/") || OFFICE_MIMETYPES.has(entry.mimeType ?? "") || ARCHIVE_MIMETYPES.has(entry.mimeType ?? "") || entry.mimeType === "image/svg+xml" || entry.mimeType === "application/json" || entry.mimeType === "application/ld+json" || entry.mimeType === "application/xml" || entry.mimeType === "application/javascript" || entry.mimeType === "application/x-javascript" || entry.mimeType === "application/x-sh" || entry.mimeType === "application/x-yaml" || entry.mimeType === "application/yaml" || entry.mimeType === "application/toml" || entry.mimeType === "application/x-ndjson" || entry.mimeType === "application/sql" || entry.mimeType === "application/x-shellscript" || entry.mimeType === "text/csv" || entry.mimeType === "text/tab-separated-values" || entry.mimeType === "text/markdown" || entry.mimeType === "text/x-markdown"),
+				previewable: isPreviewableMime(entry.mimeType),
 			};
  });
 }

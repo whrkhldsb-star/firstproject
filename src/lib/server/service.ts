@@ -6,7 +6,7 @@ import { PPKError, parseFromString } from "ppk-to-openssh";
 import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/db";
-
+import { encryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import { getServerConnectionSummary, normalizeServerInput } from "./config";
 import { createServerSchema, type CreateServerInput } from "./schema";
 
@@ -223,7 +223,7 @@ export async function createSshKey(input: {
       name,
       fingerprint: normalizedKey.fingerprint,
       publicKey: normalizedKey.publicKey,
-      privateKey: normalizedKey.privateKey,
+      privateKey: normalizedKey.privateKey ? encryptSshPrivateKey(normalizedKey.privateKey) : null,
       description,
       createdById: input.createdById ?? null,
     },

@@ -18,7 +18,7 @@ export type CreateAlertRuleInput = {
 /* ── CRUD ─────────────────────────────────────────────────── */
 
 export async function listAlertRules() {
-	return prisma.alertRule.findMany({ orderBy: { createdAt: "desc" } });
+	return prisma.alertRule.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
 }
 
 export async function createAlertRule(input: CreateAlertRuleInput) {

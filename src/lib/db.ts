@@ -23,7 +23,14 @@ function getPrismaAdapter() {
 	}
 
 	if (!global.__appPrismaAdapter__) {
-		global.__appPrismaAdapter__ = new PrismaPg(process.env.DATABASE_URL);
+		// Connection pool tuning: parse pool params from DATABASE_URL or use defaults
+		const poolSize = parseInt(process.env.DB_POOL_SIZE ?? "10", 10);
+		const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? "30000", 10);
+		const url = new URL(process.env.DATABASE_URL);
+		// Ensure pool params are in the connection string for the pg adapter
+		if (!url.searchParams.has("pool_max")) url.searchParams.set("pool_max", String(poolSize));
+		if (!url.searchParams.has("pool_idle_timeout")) url.searchParams.set("pool_idle_timeout", String(poolIdleTimeout));
+		global.__appPrismaAdapter__ = new PrismaPg(url.toString());
 	}
 
 	return global.__appPrismaAdapter__;

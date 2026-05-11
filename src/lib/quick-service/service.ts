@@ -5,33 +5,25 @@ import net from "net";
 
 const run = promisify(exec);
 
+/* ── 安全辅助函数 ─────────────────────────────────────────────── */
+
+/** Shell 参数安全引用（单引号版本） */
+function shellQuote(s: string): string {
+	return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** 容器名安全验证：只允许字母、数字、下划线、点、连字符 */
+const SAFE_CONTAINER_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+function safeContainerName(slug: string): string {
+	if (!SAFE_CONTAINER_RE.test(slug)) throw new Error('Invalid slug');
+	return `qs-${slug}`;
+}
+
 /* ── Port allocation & detection ──────────────────────────────── */
 
 const PORT_RANGE_MIN = 10000;
 const PORT_RANGE_MAX = 65535;
 const PORT_MAX_ATTEMPTS = 50;
-
-/** Real-time check: is a TCP port available on this host? */
-export function isPortAvailable(port: number): boolean {
-	/* Method 1: ss (fast, kernel-level) */
-	try {
-		const out = execSync(`ss -tlnpH 2>/dev/null | grep -E ':${port}\\b'`, {
-			timeout: 5000,
-			encoding: "utf8",
-		});
-		if (out.trim().length > 0) return false; // something is listening
-	} catch {
-		// ss returned nothing → port likely free; fall through to bind test
-	}
-
-	/* Method 2: actual bind test (authoritative) */
-	return new Promise<boolean>((resolve) => {
-		const server = net.createServer();
-		server.once("error", () => { resolve(false); server.close(); });
-		server.once("listening", () => { resolve(true); server.close(); });
-		server.listen(port, "0.0.0.0");
-	}).valueOf() as boolean; // sync-ish: we rely on ss first, bind as backup
-}
 
 /** Actually do a synchronous bind check (the reliable one) */
 export function isPortAvailableSync(port: number): boolean {
@@ -119,7 +111,7 @@ export async function installService(opts: InstallOptions) {
 	// ── Step 3: Create volume dirs ──
 	for (const vol of template.volumesJson) {
 		try {
-			execSync(`mkdir -p "${vol.host}"`, { timeout: 10000 });
+			execSync(`mkdir -p ${shellQuote(vol.host)}`, { timeout: 10000 });
 		} catch {
 			// best effort
 		}
@@ -165,11 +157,11 @@ export async function installService(opts: InstallOptions) {
 }
 
 async function startDockerContainer(serviceId: string, tmpl: ServiceTemplate, hostPort: number) {
-	const containerName = `qs-${tmpl.slug}`;
+	const containerName = safeContainerName(tmpl.slug);
 
 	// Stop & remove old container if exists
 	try {
-		execSync(`docker rm -f ${containerName} 2>/dev/null`, { timeout: 15000 });
+		execSync(`docker rm -f ${shellQuote(containerName)} 2>/dev/null`, { timeout: 15000 });
 	} catch {
 		// doesn't exist, fine
 	}
@@ -180,14 +172,14 @@ async function startDockerContainer(serviceId: string, tmpl: ServiceTemplate, ho
 	const extraPortMappings = (tmpl.extraPorts ?? [])
 		.map((ep) => `-p ${ep.host}:${ep.container}`)
 		.join(" ");
-	const volArgs = tmpl.volumesJson.map((v) => `-v "${v.host}:${v.container}"`).join(" ");
+	const volArgs = tmpl.volumesJson.map((v) => `-v ${shellQuote(v.host)}:${shellQuote(v.container)}`).join(" ");
 	const envArgs = Object.entries(tmpl.envJson)
 		.filter(([, v]) => v !== "")
-		.map(([k, v]) => `-e ${k}=${v}`)
+		.map(([k, v]) => `-e ${k}=${shellQuote(String(v))}`)
 		.join(" ");
 	const cmdSuffix = tmpl.command ? ` ${tmpl.command}` : "";
 
-	const cmd = `docker run -d --name ${containerName} --restart unless-stopped ${portMapping} ${extraPortMappings} ${volArgs} ${envArgs} ${tmpl.image}${cmdSuffix}`;
+	const cmd = `docker run -d --name ${shellQuote(containerName)} --restart unless-stopped ${portMapping} ${extraPortMappings} ${volArgs} ${envArgs} ${tmpl.image}${cmdSuffix}`;
 
 	const { stdout } = await run(cmd, { timeout: 300_000 }); // 5min for image pull
 	const containerId = stdout.trim().substring(0, 12);
@@ -204,9 +196,9 @@ export async function uninstallService(slug: string) {
 	const svc = await prisma.quickService.findUnique({ where: { slug } });
 	if (!svc) throw new Error("服务不存在");
 
-	const containerName = `qs-${svc.slug}`;
+	const containerName = safeContainerName(svc.slug);
 	try {
-		execSync(`docker rm -f ${containerName} 2>/dev/null`, { timeout: 15000 });
+		execSync(`docker rm -f ${shellQuote(containerName)} 2>/dev/null`, { timeout: 15000 });
 	} catch {
 		// container may not exist
 	}
@@ -220,9 +212,9 @@ export async function startService(slug: string) {
 	const svc = await prisma.quickService.findUnique({ where: { slug } });
 	if (!svc) throw new Error("服务不存在");
 
-	const containerName = `qs-${svc.slug}`;
+	const containerName = safeContainerName(svc.slug);
 	try {
-		execSync(`docker start ${containerName}`, { timeout: 30000 });
+		execSync(`docker start ${shellQuote(containerName)}`, { timeout: 30000 });
 		await prisma.quickService.update({ where: { slug }, data: { status: "running" } });
 	} catch {
 		// Container may have been removed; try to re-create from DB info
@@ -246,9 +238,9 @@ export async function stopService(slug: string) {
 	const svc = await prisma.quickService.findUnique({ where: { slug } });
 	if (!svc) throw new Error("服务不存在");
 
-	const containerName = `qs-${svc.slug}`;
+	const containerName = safeContainerName(svc.slug);
 	try {
-		execSync(`docker stop ${containerName}`, { timeout: 30000 });
+		execSync(`docker stop ${shellQuote(containerName)}`, { timeout: 30000 });
 		await prisma.quickService.update({ where: { slug }, data: { status: "stopped" } });
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -263,9 +255,9 @@ export async function syncServiceStatus(slug: string) {
 	const svc = await prisma.quickService.findUnique({ where: { slug } });
 	if (!svc) throw new Error("服务不存在");
 
-	const containerName = `qs-${svc.slug}`;
+	const containerName = safeContainerName(svc.slug);
 	try {
-		const state = execSync(`docker inspect --format='{{.State.Status}}' ${containerName} 2>/dev/null`, { timeout: 10000 }).toString().trim();
+		const state = execSync(`docker inspect --format='{{.State.Status}}' ${shellQuote(containerName)} 2>/dev/null`, { timeout: 10000 }).toString().trim();
 		const status = state === "running" ? "running" : state === "paused" ? "stopped" : "stopped";
 		await prisma.quickService.update({ where: { slug }, data: { status, error: null } });
 		return status;
@@ -279,6 +271,10 @@ export async function syncServiceStatus(slug: string) {
 
 /** Check if a specific port is available; returns { available, usedBy } */
 export function checkPort(port: number): { available: boolean; usedBy: string | null } {
+	// 确保 port 是安全整数，防止注入
+	if (!Number.isInteger(port) || port < 1 || port > 65535) {
+		return { available: false, usedBy: null };
+	}
 	try {
 		const out = execSync(
 			`ss -tlnpH 2>/dev/null | grep ':${port}\\b' || true`,
@@ -289,14 +285,16 @@ export function checkPort(port: number): { available: boolean; usedBy: string | 
 			const pidMatch = out.match(/pid=(\d+)/);
 			let usedBy = "未知进程";
 			if (pidMatch) {
+				const pid = pidMatch[1];
+				if (!/^\d+$/.test(pid)) throw new Error('Invalid PID');
 				try {
-					const cmdLine = execSync(`cat /proc/${pidMatch[1]}/cmdline 2>/dev/null | tr '\\0' ' '`, {
+					const cmdLine = execSync(`cat /proc/${pid}/cmdline 2>/dev/null | tr '\\0' ' '`, {
 						timeout: 3000,
 						encoding: "utf8",
 					});
-					usedBy = cmdLine.trim().substring(0, 80) || `PID ${pidMatch[1]}`;
+					usedBy = cmdLine.trim().substring(0, 80) || `PID ${pid}`;
 				} catch {
-					usedBy = `PID ${pidMatch[1]}`;
+					usedBy = `PID ${pid}`;
 				}
 			}
 			return { available: false, usedBy };

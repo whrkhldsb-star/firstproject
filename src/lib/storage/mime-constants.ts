@@ -131,3 +131,34 @@ export function isDocumentMime(mime: string): boolean {
 export function isMediaMime(mime: string): boolean {
 	return IMAGE_MIME_SET.has(mime) || AUDIO_MIME_SET.has(mime) || VIDEO_MIME_SET.has(mime);
 }
+
+/** Is the MIME type of an editable text file (code, config, data)? */
+export const EDITABLE_TEXT_MIME_PREFIXES = ["text/"];
+
+export const EDITABLE_TEXT_MIME_TYPES = new Set([
+	"application/json",
+	"application/ld+json",
+	"application/xml",
+	"application/javascript",
+	"application/x-javascript",
+	"application/x-sh",
+	"image/svg+xml",
+]);
+
+export const EDITABLE_TEXT_EXTENSIONS = new Set([
+	".txt", ".md", ".json", ".js", ".jsx", ".ts", ".tsx",
+	".css", ".scss", ".html", ".xml", ".yml", ".yaml",
+	".csv", ".log", ".env", ".py", ".sh", ".svg",
+]);
+
+export const MAX_EDITABLE_FILE_SIZE_BYTES = 512 * 1024;
+
+/** Is the file previewable in the browser? */
+export function isPreviewableMime(mime: string | null | undefined): boolean {
+	if (!mime) return false;
+	return (
+		mime === "application/pdf" ||
+		isMediaMime(mime) ||
+		isDocumentMime(mime)
+	);
+}

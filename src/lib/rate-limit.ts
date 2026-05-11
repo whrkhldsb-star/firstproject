@@ -82,6 +82,66 @@ export const LOGIN_RATE_LIMIT: RateLimitConfig = {
 
 /** Login-specific rate limit: 20 attempts per 15 minutes per IP (slower brute force) */
 export const LOGIN_SLOW_RATE_LIMIT: RateLimitConfig = {
-  maxRequests: 20,
-  windowMs: 15 * 60 * 1000,
+	maxRequests: 20,
+	windowMs: 15 * 60 * 1000,
 };
+
+// ── Account lockout (per-username) ─────────────────────────────────
+type LockoutEntry = {
+	failCount: number;
+	lockedUntil: number | null; // timestamp, null = not locked
+};
+
+const ACCOUNT_LOCKOUT_MAX_FAILURES = 5; // lock after N consecutive failures
+const ACCOUNT_LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
+const lockoutStore = new Map<string, LockoutEntry>();
+
+// Clean up stale lockout entries every 10 minutes
+setInterval(() => {
+	const now = Date.now();
+	for (const [key, entry] of lockoutStore) {
+		if (entry.lockedUntil && entry.lockedUntil < now) {
+			lockoutStore.delete(key);
+		}
+	}
+}, 10 * 60 * 1000);
+
+/**
+ * Record a failed login attempt for a username.
+ * Returns the lockout status after recording.
+ */
+export function recordLoginFailure(username: string): { locked: boolean; lockedUntil: number | null; failCount: number } {
+	const key = username.toLowerCase();
+	let entry = lockoutStore.get(key);
+	if (!entry || (entry.lockedUntil && entry.lockedUntil < Date.now())) {
+		entry = { failCount: 0, lockedUntil: null };
+	}
+	entry.failCount++;
+	if (entry.failCount >= ACCOUNT_LOCKOUT_MAX_FAILURES && !entry.lockedUntil) {
+		entry.lockedUntil = Date.now() + ACCOUNT_LOCKOUT_DURATION_MS;
+	}
+	lockoutStore.set(key, entry);
+	return { locked: !!entry.lockedUntil, lockedUntil: entry.lockedUntil, failCount: entry.failCount };
+}
+
+/**
+ * Clear lockout on successful login.
+ */
+export function clearLoginFailure(username: string): void {
+	lockoutStore.delete(username.toLowerCase());
+}
+
+/**
+ * Check if an account is currently locked.
+ */
+export function isAccountLocked(username: string): { locked: boolean; lockedUntil: number | null } {
+	const key = username.toLowerCase();
+	const entry = lockoutStore.get(key);
+	if (!entry || !entry.lockedUntil) return { locked: false, lockedUntil: null };
+	if (entry.lockedUntil < Date.now()) {
+		lockoutStore.delete(key);
+		return { locked: false, lockedUntil: null };
+	}
+	return { locked: true, lockedUntil: entry.lockedUntil };
+}

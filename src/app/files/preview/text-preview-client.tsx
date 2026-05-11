@@ -242,7 +242,8 @@ export function TextPreviewClient({ href, name }: { href: string; name?: string 
 	const highlightSearch = (html: string): string => {
 		if (!searchQuery.trim()) return html;
 		try {
-			const escaped = escapeRegex(searchQuery);
+			const escapedQuery = escapeHtml(searchQuery);
+		const escaped = escapeRegex(escapedQuery);
 			return html.replace(new RegExp(`(${escaped})`, "gi"), '<mark class="bg-amber-400/30 text-amber-200 rounded px-0.5">$1</mark>');
 		} catch {
 			return html;

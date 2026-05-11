@@ -1,6 +1,5 @@
-export function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
+import { shellQuote } from "@/lib/shell-quote";
+export { shellQuote };
 
 export function toRemoteChildPath(parentPath: string, childName: string): string {
   return `${parentPath.replace(/\/$/, "")}/${childName}`;

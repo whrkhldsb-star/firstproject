@@ -1,7 +1,21 @@
 import { prisma } from "@/lib/db";
+import {
+	VALID_SETTING_KEYS,
+	isSensitiveKey,
+	MASKED_VALUE,
+} from "@/lib/settings/schema";
+import { encrypt, decrypt, isEncrypted } from "@/lib/crypto/service";
+
+/* ── Safe decrypt helper ──────────────────────────────────── */
+function safeDecrypt(value: string): string {
+	try {
+		return isEncrypted(value) ? decrypt(value) : value;
+	} catch {
+		return value;
+	}
+}
 
 /* ── Default settings ─────────────────────────────────────── */
-
 const DEFAULTS: Record<string, string> = {
 	"platform.name": "VPS 统一管控平台",
 	"platform.logo": "",
@@ -19,37 +33,62 @@ const DEFAULTS: Record<string, string> = {
 };
 
 /* ── Get / Set ────────────────────────────────────────────── */
-
 export async function getSetting(key: string): Promise<string> {
 	const row = await prisma.setting.findUnique({ where: { key } });
-	return row?.value ?? DEFAULTS[key] ?? "";
+	const raw = row?.value ?? DEFAULTS[key] ?? "";
+	return isSensitiveKey(key) ? safeDecrypt(raw) : raw;
 }
 
 export async function getAllSettings(): Promise<Record<string, string>> {
 	const rows = await prisma.setting.findMany();
 	const result: Record<string, string> = { ...DEFAULTS };
 	for (const row of rows) {
-		result[row.key] = row.value;
+		result[row.key] = isSensitiveKey(row.key) ? safeDecrypt(row.value) : row.value;
 	}
 	return result;
 }
 
+/**
+ * Return all settings with sensitive values masked.
+ * Keys containing password/secret/key/token/pass will have
+ * their values replaced with '***'.
+ */
+export async function getAllSettingsMasked(): Promise<Record<string, string>> {
+	const settings = await getAllSettings();
+	const masked: Record<string, string> = {};
+	for (const [key, value] of Object.entries(settings)) {
+		masked[key] = isSensitiveKey(key) ? MASKED_VALUE : value;
+	}
+	return masked;
+}
+
 export async function setSetting(key: string, value: string): Promise<void> {
+	const storedValue = isSensitiveKey(key) ? encrypt(value) : value;
 	await prisma.setting.upsert({
 		where: { key },
-		update: { value },
-		create: { key, value },
+		update: { value: storedValue },
+		create: { key, value: storedValue },
 	});
 }
 
-export async function setManySettings(entries: Array<{ key: string; value: string }>): Promise<void> {
+export async function setManySettings(
+	entries: Array<{ key: string; value: string }>
+): Promise<void> {
 	await prisma.$transaction(
-		entries.map(({ key, value }) =>
-			prisma.setting.upsert({
+		entries.map(({ key, value }) => {
+			const storedValue = isSensitiveKey(key) ? encrypt(value) : value;
+			return prisma.setting.upsert({
 				where: { key },
-				update: { value },
-				create: { key, value },
-			})
-		)
+				update: { value: storedValue },
+				create: { key, value: storedValue },
+			});
+		})
 	);
+}
+
+/**
+ * Check whether a key is in the whitelist of allowed setting keys.
+ */
+export function isValidSettingKey(key: string): boolean {
+	return VALID_SETTING_KEYS.includes(key);
 }

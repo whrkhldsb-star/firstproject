@@ -39,9 +39,8 @@ type TarSyncCommandInput = SyncTargetCommandInput & {
 	deleteOrphans: boolean;
 };
 
-export function shellQuote(value: string): string {
-	return `'${value.replace(/'/g, `'\\''`)}'`;
-}
+import { shellQuote } from "@/lib/shell-quote";
+export { shellQuote };
 
 function shellDoubleQuote(value: string): string {
 	return `"${value.replace(/(["\\$`])/g, "\\$1")}"`;

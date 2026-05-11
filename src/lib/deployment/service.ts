@@ -30,7 +30,6 @@ export async function createDeploymentRunFromTemplate(input: { templateId: strin
   if (!template) throw new Error("部署模板不存在");
   assertTemplateVariables(template.command, normalized.variables);
   const renderedCommand = renderCommand(template.command, normalized.variables);
-  if (/\{\{\w+\}\}/.test(renderedCommand)) throw new Error("部署模板变量未填写完整");
 
   const run = await prisma.deploymentRun.create({
     data: { templateId: template.id, variables: normalized.variables, renderedCommand, serverIds: normalized.serverIds, createdBy: normalized.requesterId, status: "PENDING" },

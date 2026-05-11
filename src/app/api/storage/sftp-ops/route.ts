@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/require-session";
 
 import { prisma } from "@/lib/db";
 import { assertStorageAccess } from "@/lib/storage/access-control";
+import { decryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import {
   deleteRemoteFile,
   renameRemoteFile,
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
  const port = node.port ?? node.server?.port ?? 22;
  const username = node.username ?? node.server?.username ?? "root";
  const connectionType = node.server?.connectionType ?? "SSH_KEY";
-const privateKey = (connectionType === "SSH_KEY" ? node.server?.sshKey?.privateKey : undefined) ?? undefined;
+const privateKey = (connectionType === "SSH_KEY" && node.server?.sshKey?.privateKey ? decryptSshPrivateKey(node.server.sshKey.privateKey) : undefined) ?? undefined;
 const password = (connectionType === "PASSWORD" ? node.server?.password : undefined) ?? undefined;
 
  if (!host || (connectionType === "SSH_KEY" && !privateKey) || (connectionType === "PASSWORD" && !password)) {

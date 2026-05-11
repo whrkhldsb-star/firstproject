@@ -4,7 +4,8 @@ import { authenticateUser } from "@/lib/auth/service";
 import { createSessionToken, getSessionCookieName } from "@/lib/auth/session";
 import { auditUserAction, auditSystemAction } from "@/lib/audit/service";
 import { createLogger } from "@/lib/logging";
-import { checkRateLimit, getClientIp, LOGIN_RATE_LIMIT, LOGIN_SLOW_RATE_LIMIT } from "@/lib/rate-limit";
+import { checkRateLimit, getClientIp, LOGIN_RATE_LIMIT, LOGIN_SLOW_RATE_LIMIT, isAccountLocked, recordLoginFailure, clearLoginFailure } from "@/lib/rate-limit";
+import { generateCsrfToken, getCsrfCookieName } from "@/lib/auth/csrf";
 
 const logger = createLogger("api:login");
 
@@ -48,9 +49,25 @@ export async function POST(request: Request) {
 		const password = String(formData.get("password") ?? "");
 		const nextPath = safeNextPath(formData.get("next"));
 
+		// Check account lockout before attempting authentication
+		const lockCheck = isAccountLocked(username);
+		if (lockCheck.locked) {
+			const remainingMin = Math.ceil((lockCheck.lockedUntil! - Date.now()) / 60000);
+			const params = new URLSearchParams({ error: "locked", minutes: String(remainingMin) });
+			return redirectWithRelativeLocation(`/login?${params.toString()}`);
+		}
+
 		const user = await authenticateUser({ username, password });
 		if (!user) {
-			auditSystemAction("auth.login_failed", { username, ip: clientIp }, "WARNING");
+			// Account lockout: record failure and check
+			const lockResult = recordLoginFailure(username);
+			if (lockResult.locked) {
+				const remainingMin = Math.ceil((lockResult.lockedUntil! - Date.now()) / 60000);
+				auditSystemAction("auth.account_locked", { username, ip: clientIp, failCount: lockResult.failCount }, "WARNING");
+				const params = new URLSearchParams({ error: "locked", minutes: String(remainingMin) });
+				return redirectWithRelativeLocation(`/login?${params.toString()}`);
+			}
+			auditSystemAction("auth.login_failed", { username, ip: clientIp, failCount: lockResult.failCount }, "WARNING");
 			const invalidPath = new URLSearchParams(
 				nextPath === "/"
 					? { error: "invalid" }
@@ -59,7 +76,8 @@ export async function POST(request: Request) {
 			return redirectWithRelativeLocation(`/login?${invalidPath.toString()}`);
 		}
 
-		// Log successful login
+		// Log successful login & clear any previous failure count
+		clearLoginFailure(username);
 		auditUserAction(user.id, "auth.login", { username, ip: clientIp });
 
 		const token = await createSessionToken({
@@ -73,6 +91,15 @@ export async function POST(request: Request) {
 		const response = redirectWithRelativeLocation(nextPath);
 		response.cookies.set(getSessionCookieName(), token, {
 			httpOnly: true,
+			sameSite: "lax",
+			secure: requestUrl.protocol === "https:",
+			path: "/",
+			maxAge: 7 * 24 * 60 * 60,
+		});
+		// Set CSRF token cookie (non-HttpOnly so JS can read it for headers)
+		const csrfToken = generateCsrfToken();
+		response.cookies.set(getCsrfCookieName(), csrfToken, {
+			httpOnly: false,
 			sameSite: "lax",
 			secure: requestUrl.protocol === "https:",
 			path: "/",

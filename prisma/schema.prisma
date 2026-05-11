@@ -77,9 +77,10 @@ model User {
   apiTokens          ApiToken[]
   announcements      Announcement[]
   mediaItems         MediaItem[]
-  tickets            Ticket[]            @relation("TicketCreator")
-  assignedTickets    Ticket[]            @relation("TicketAssignee")
-  ticketComments     TicketComment[]
+ tickets Ticket[] @relation("TicketCreator")
+ assignedTickets Ticket[] @relation("TicketAssignee")
+ ticketComments TicketComment[]
+ imageUploads ImageUpload[]
  deploymentExports DeploymentExport[]
  aiProviders AiProvider[]
  aiConversations AiConversation[]
@@ -234,9 +235,10 @@ model StorageNode {
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
   server              Server?             @relation(fields: [serverId], references: [id], onDelete: SetNull)
-  fileEntries  FileEntry[]
-  accessGrants UserStorageAccess[]
-  shareLinks   ShareLink[]
+ fileEntries FileEntry[]
+ accessGrants UserStorageAccess[]
+ shareLinks ShareLink[]
+ imageUploads ImageUpload[]
 }
 
 model UserStorageAccess {
@@ -765,6 +767,33 @@ model QuickService {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@index([category, status])
-  @@map("quick_services")
+ @@index([category, status])
+ @@map("quick_services")
+}
+
+// ── Image Hosting (图床) ──────────────────────────────────────────
+
+model ImageUpload {
+ id          String   @id @default(cuid())
+ filename    String   // original filename
+ storageKey  String   // stored filename (uuid-based)
+ mimeType    String
+ sizeBytes   Int
+ width       Int?
+ height      Int?
+ checksum    String?  // sha256
+ album       String?  // optional album grouping
+ isPublic    Boolean  @default(true)
+ storageNodeId String? // optional: link to cloud storage node
+ relativePath  String? // path within the storage node
+ userId      String
+ createdAt   DateTime @default(now())
+
+ user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+ storageNode StorageNode? @relation(fields: [storageNodeId], references: [id], onDelete: SetNull)
+
+ @@index([userId, createdAt])
+ @@index([album])
+ @@index([isPublic, createdAt])
+ @@map("image_uploads")
 }

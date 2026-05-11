@@ -34,10 +34,11 @@ export async function GET() {
         },
       },
     },
-    orderBy: { createdAt: "desc" },
-  });
+orderBy: { createdAt: "desc" },
+take: 500,
+});
 
-  // Strip passwordHash from response
+// Strip passwordHash from response
   const safeUsers = users.map((u) => ({
     ...u,
     roles: u.roles.map((r) => r.role),

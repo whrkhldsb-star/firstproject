@@ -22,6 +22,7 @@ import {
   type Aria2Status,
 } from "@/lib/aria2/service";
 import { execRemoteCommand, buildSshParamsFromServer } from "@/lib/ssh/client";
+import { decryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import { execFile } from "child_process";
 import { randomUUID } from "crypto";
 import { promisify } from "util";
@@ -283,7 +284,7 @@ export async function POST(request: Request) {
         ? { id: server.storageNode.id, basePath: server.storageNode.basePath }
         : null,
       sshKey: server.sshKey
-        ? { privateKey: server.sshKey.privateKey ?? "" }
+        ? { privateKey: decryptSshPrivateKey(server.sshKey.privateKey ?? "") }
         : null,
     };
 
@@ -389,9 +390,10 @@ export async function GET(request: Request) {
       }
       await Promise.all(updates);
     }
-  } catch {
-    // aria2 not available, return DB data as-is
-  }
+	} catch (err) {
+		// aria2 not available, return DB data as-is
+		logError("[DownloadAPI] aria2 refresh skipped:", err);
+	}
 
   const safe = tasks.map((t) => ({
     ...t,
@@ -410,8 +412,10 @@ export async function GET(request: Request) {
   // Also return aria2 global stats
   let globalStat = null;
   try {
-    globalStat = await getGlobalStat();
-  } catch {}
+	globalStat = await getGlobalStat();
+	} catch (err) {
+		logError("[DownloadAPI] globalStat fetch failed:", err);
+	}
 
   return NextResponse.json({ tasks: safe, globalStat });
 }
@@ -441,12 +445,13 @@ export async function PATCH(request: Request) {
           "max-overall-download-limit": `${globalMaxSpeedKb}K`,
         });
         return NextResponse.json({ success: true });
-      } catch {
-        return NextResponse.json(
-          { error: "设置全局限速失败" },
-          { status: 500 },
-        );
-      }
+	} catch (err) {
+		logError("[DownloadAPI] Global speed limit failed:", err);
+		return NextResponse.json(
+			{ error: "设置全局限速失败" },
+			{ status: 500 },
+		);
+	}
     }
 
     if (!taskId)
@@ -470,15 +475,18 @@ export async function PATCH(request: Request) {
           data: { maxSpeedKb },
         });
         return NextResponse.json({ success: true });
-      } catch {
-        return NextResponse.json({ error: "设置限速失败" }, { status: 500 });
-      }
+	} catch (err) {
+		logError("[DownloadAPI] Per-task speed limit failed:", err);
+		return NextResponse.json({ error: "设置限速失败" }, { status: 500 });
+	}
     }
 
     if (action === "pause" && task.aria2Gid) {
       try {
-        await pauseDownload(task.aria2Gid);
-      } catch {}
+		await pauseDownload(task.aria2Gid);
+	} catch (err) {
+		logError("[DownloadAPI] Failed to pause aria2 download:", err);
+	}
       await prisma.downloadTask.update({
         where: { id: taskId },
         data: { status: "PENDING", progress: "已暂停" },
@@ -488,8 +496,10 @@ export async function PATCH(request: Request) {
 
     if (action === "resume" && task.aria2Gid) {
       try {
-        await unpauseDownload(task.aria2Gid);
-      } catch {}
+		await unpauseDownload(task.aria2Gid);
+	} catch (err) {
+		logError("[DownloadAPI] Failed to unpause aria2 download:", err);
+	}
       await prisma.downloadTask.update({
         where: { id: taskId },
         data: { status: "RUNNING", progress: "恢复下载..." },
@@ -520,11 +530,12 @@ export async function PATCH(request: Request) {
           },
         });
         return NextResponse.json({ status: newStatus, progress });
-      } catch {
-        return NextResponse.json({
-          status: task.status,
-          progress: task.progress,
-        });
+	} catch (err) {
+		logError("[DownloadAPI] aria2 refresh failed:", err);
+		return NextResponse.json({
+			status: task.status,
+			progress: task.progress,
+		});
       }
     }
 
@@ -567,8 +578,10 @@ export async function DELETE(request: Request) {
     // Cancel aria2 download if applicable
     if (task.aria2Gid) {
       try {
-        await removeDownload(task.aria2Gid, true);
-      } catch {}
+	await removeDownload(task.aria2Gid, true);
+	} catch (err) {
+		logError("[DownloadAPI] Failed to remove aria2 download:", err);
+	}
     }
 
     // Kill legacy processes
@@ -576,14 +589,18 @@ export async function DELETE(request: Request) {
       if (task.relayMode) {
         if (task.pid) {
           try {
-            process.kill(task.pid, "SIGTERM");
-          } catch {}
+		process.kill(task.pid, "SIGTERM");
+	} catch (err) {
+		logError("[DownloadAPI] Failed to kill process:", err);
+	}
         }
         const tempDir = `/tmp/app-relay-${taskId}`;
         try {
-          await fs.rm(tempDir, { recursive: true, force: true });
-        } catch {}
-      } else if (task.pid) {
+	await fs.rm(tempDir, { recursive: true, force: true });
+	} catch (err) {
+		logError("[DownloadAPI] Failed to cleanup temp dir:", err);
+	}
+	} else if (task.pid) {
         try {
           const sshParams = await buildSshParamsFromServer(
             task.server,
@@ -592,9 +609,11 @@ export async function DELETE(request: Request) {
           await execRemoteCommand({
             ...sshParams,
             command: `kill ${task.pid} 2>/dev/null; rm -f -- ${shellQuote(`/tmp/app-dl-${task.id}.pid`)}`,
-            timeout: 10000,
-          });
-        } catch {}
+		timeout: 10000,
+			});
+	} catch (err) {
+		logError("[DownloadAPI] Failed to kill remote process:", err);
+	}
       }
     }
 
@@ -693,21 +712,26 @@ async function executeAria2RelayDownload(
           await cleanupTemp(tempDir);
           return;
         }
-      } catch {
-        // aria2 might have purged the result; check if files exist
-        try {
+	} catch (err) {
+		// aria2 might have purged the result; check if files exist
+		logError("[DownloadAPI] aria2 status poll failed:", err);
+		try {
           const files = await fs.readdir(tempDir);
-          if (files.some((f) => !f.endsWith(".aria2"))) {
-            done = true;
-          }
-        } catch {}
+		if (files.some((f) => !f.endsWith(".aria2"))) {
+				done = true;
+			}
+		} catch (err) {
+			logError("[DownloadAPI] Failed to read temp dir:", err);
+		}
       }
     }
 
-    if (!done) {
-      try {
-        await removeDownload(gid, true);
-      } catch {}
+	if (!done) {
+		try {
+			await removeDownload(gid, true);
+		} catch (err) {
+			logError("[DownloadAPI] Failed to remove aria2 download on timeout:", err);
+		}
       await prisma.downloadTask.update({
         where: { id: taskId },
         data: { status: "FAILED", errorMessage: "下载超时（2小时限制）" },
@@ -740,9 +764,11 @@ async function executeAria2RelayDownload(
     let totalSize = 0;
     for (const f of filesToTransfer) {
       try {
-        const stat = await fs.stat(path.join(tempDir, f));
-        totalSize += stat.size;
-      } catch {}
+	const stat = await fs.stat(path.join(tempDir, f));
+		totalSize += stat.size;
+	} catch (err) {
+		logError("[DownloadAPI] Failed to stat file:", err);
+	}
     }
 
     const sshParams = await buildSshParamsFromServer(server, server.sshKey);
@@ -791,9 +817,11 @@ async function executeAria2RelayDownload(
           errorMessage: getPublicDownloadError(error),
         },
       });
-    } catch {}
-    await cleanupTemp(tempDir);
-  }
+	} catch (err) {
+		logError("[DownloadAPI] Failed to update task status after relay failure:", err);
+	}
+	await cleanupTemp(tempDir);
+	}
 }
 
 /** Direct download (HTTP/HTTPS) on remote VPS — same as before */
@@ -870,8 +898,10 @@ async function executeDirectDownload(
           errorMessage: getPublicDownloadError(error),
         },
       });
-    } catch {}
-  }
+	} catch (err) {
+		logError("[DownloadAPI] Failed to update task status after direct download failure:", err);
+	}
+	}
 }
 
 /** Transfer file via scp */
@@ -899,9 +929,9 @@ async function transferFileViaSsh2(
   ];
   const target = toScpTarget(server.username || "root", server.host, remoteFilePath);
 
-  if (server.sshKey?.privateKey) {
+  if (decryptSshPrivateKey(server.sshKey?.privateKey ?? "")) {
     const keyFile = path.join("/tmp", `app-key-${taskId}-${randomUUID()}`);
-    await fs.writeFile(keyFile, server.sshKey.privateKey, { mode: 0o600 });
+    await fs.writeFile(keyFile, decryptSshPrivateKey(server.sshKey!.privateKey!), { mode: 0o600 });
     try {
       await execFileAsync(
         "scp",
@@ -924,7 +954,9 @@ async function transferFileViaSsh2(
 }
 
 async function cleanupTemp(tempDir: string) {
-  try {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  } catch {}
+	try {
+		await fs.rm(tempDir, { recursive: true, force: true });
+	} catch (err) {
+		logError("[DownloadAPI] Failed to cleanup temp dir:", err);
+	}
 }

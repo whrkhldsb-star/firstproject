@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 import { buildContentDisposition } from "@/lib/http/content-disposition";
 import { createLogger } from "@/lib/logging";
 import { assertStorageAccess } from "@/lib/storage/access-control";
+import { decryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import { normalizeRemoteTargetPath, toClientStorageError } from "@/lib/storage/remote-path";
 
 const logger = createLogger("api:storage:sftp-download");
@@ -136,7 +137,7 @@ export async function GET(request: Request) {
  const port = node.port ?? node.server?.port ?? 22;
  const username = node.username ?? node.server?.username ?? "root";
  const connectionType = node.server?.connectionType ?? "SSH_KEY";
- const privateKey = node.server?.sshKey?.privateKey ?? undefined;
+ const privateKey = node.server?.sshKey?.privateKey ? decryptSshPrivateKey(node.server.sshKey.privateKey) : undefined;
  const password = node.server?.password ?? undefined;
 
  if (!host) {

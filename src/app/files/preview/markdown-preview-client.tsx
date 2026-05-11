@@ -145,8 +145,14 @@ function inlineFormat(text: string): string {
 	text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 	// Italic
 	text = text.replace(/\*(.+?)\*/g, "<em>$1</em>");
-	// Links [text](url)
-	text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+	// Sanitize link URLs to prevent javascript: protocol XSS
+	text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+		const trimmed = url.trim().toLowerCase();
+		if (trimmed.startsWith('javascript:') || trimmed.startsWith('data:') || trimmed.startsWith('vbscript:')) {
+			return match; // 不转换危险链接
+		}
+		return `<a href="${escapeHtml(url.trim())}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+	});
 	return text;
 }
 

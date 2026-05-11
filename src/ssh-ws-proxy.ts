@@ -36,8 +36,29 @@ const SESSION_ISSUER = process.env.AUTH_SESSION_ISSUER?.trim() || APP_SLUG;
 const SESSION_AUDIENCE = process.env.AUTH_SESSION_AUDIENCE?.trim() || `${APP_SLUG}-console`;
 
 function getSessionSecret() {
-  return process.env.AUTH_SESSION_SECRET ?? "dev-only-session-secret-change-me";
+ return process.env.AUTH_SESSION_SECRET ?? "dev-only-session-secret-change-me";
 }
+
+// ── SSH_WS_SECRET validation ───────────────────────────────────────
+
+export function requireSshWsSecret(env: Partial<NodeJS.ProcessEnv> = process.env): string | undefined {
+	const secret = env.SSH_WS_SECRET?.trim() || undefined;
+	const nodeEnv = env.NODE_ENV?.trim() || "development";
+
+	if (!secret) {
+		if (nodeEnv === "production") {
+			throw new Error("SSH_WS_SECRET must be set in production");
+		}
+		console.warn(
+			"[ssh-ws-proxy] ⚠ SSH_WS_SECRET is not set — skipping WS secret validation (development only). " +
+			"Set SSH_WS_SECRET before deploying to production.",
+		);
+	}
+
+	return secret;
+}
+
+const SSH_WS_SECRET = requireSshWsSecret();
 
 // ── Prisma (matching the main app's initialization) ─────────────────
 
@@ -137,7 +158,24 @@ const server = createServer((_req, res) => {
  res.end();
 });
 
-const wss = new WebSocketServer({ server, path: "/ssh" });
+const MAX_WS_CONNECTIONS = parseInt(process.env.SSH_WS_MAX_CONNECTIONS || "50", 10);
+
+const wss = new WebSocketServer({
+	server,
+	path: "/ssh",
+	verifyClient(info, callback) {
+		if (!isOriginAllowed(info.req)) {
+			callback(false, 403, "Origin not allowed");
+			return;
+		}
+		// Connection limit — prevent resource exhaustion
+		if (wss.clients.size >= MAX_WS_CONNECTIONS) {
+			callback(false, 503, "Too many connections");
+			return;
+		}
+		callback(true);
+	},
+});
 
 // ── Origin validation (WebSocket CSRF protection) ──────────────────
 
@@ -147,7 +185,12 @@ const ALLOWED_ORIGINS = (process.env.SSH_WS_ALLOWED_ORIGINS?.trim() || "")
 	.filter(Boolean);
 
 function isOriginAllowed(req: import("http").IncomingMessage): boolean {
-	if (ALLOWED_ORIGINS.length === 0) return true; // no restriction when not configured
+	if (ALLOWED_ORIGINS.length === 0) {
+		// Strict: reject connections when no origins are configured.
+		// This prevents WebSocket CSRF when SSH_WS_ALLOWED_ORIGINS is missing.
+		console.error("[ssh-ws-proxy] SSH_WS_ALLOWED_ORIGINS is not configured — rejecting WebSocket connection. Set this env var to allow connections.");
+		return false;
+	}
 	const origin = (req.headers.origin || "").trim().toLowerCase();
 	if (!origin) return false; // browser WebSocket always sends Origin
 	return ALLOWED_ORIGINS.includes(origin);
@@ -163,12 +206,22 @@ wss.on("connection", async (ws, req) => {
 	const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 	const serverId = url.searchParams.get("serverId");
 	const token = url.searchParams.get("token");
+	const wsSecret = url.searchParams.get("secret");
 
-  if (!serverId || !token) {
-    ws.send(JSON.stringify({ type: "error", data: "缺少 serverId 或 token 参数" }));
-    ws.close();
-    return;
-  }
+	// ── SSH_WS_SECRET authentication ────────────────────────────────
+	if (SSH_WS_SECRET) {
+		if (!wsSecret || !timingSafeEqual(Buffer.from(wsSecret), Buffer.from(SSH_WS_SECRET))) {
+			ws.send(JSON.stringify({ type: "error", data: "缺少或无效的 secret 参数" }));
+			ws.close();
+			return;
+		}
+	}
+
+ if (!serverId || !token) {
+ ws.send(JSON.stringify({ type: "error", data: "缺少 serverId 或 token 参数" }));
+ ws.close();
+ return;
+ }
 
   const session = verifySessionToken(token);
   if (!session) {

@@ -4,10 +4,10 @@ import { LoginForm } from "./login-form";
 export const dynamic = "force-dynamic";
 
 type LoginPageProps = {
-	searchParams?: Promise<{ next?: string; error?: string }>;
+	searchParams?: Promise<{ next?: string; error?: string; minutes?: string }>;
 };
 
-function resolveErrorMessage(error?: string) {
+function resolveErrorMessage(error?: string, minutes?: string) {
 	if (error === "invalid") {
 		return "用户名或密码错误";
 	}
@@ -17,13 +17,17 @@ function resolveErrorMessage(error?: string) {
 	if (error === "rate_limited") {
 		return "登录尝试过于频繁，请稍后再试";
 	}
+	if (error === "locked") {
+		const min = minutes ? `${minutes} 分钟` : "15 分钟";
+		return `账户已锁定，请 ${min} 后再试`;
+	}
 	return undefined;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
 	const resolvedSearchParams = (await searchParams) ?? {};
 	const nextPath = resolvedSearchParams.next ?? "/";
-	const error = resolveErrorMessage(resolvedSearchParams.error);
+	const error = resolveErrorMessage(resolvedSearchParams.error, resolvedSearchParams.minutes);
 	const publicLabel = getPublicLabel();
 	const siteName = getSiteName();
 
