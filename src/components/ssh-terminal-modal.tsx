@@ -47,7 +47,7 @@ const terminalRef = useRef<import("@xterm/xterm").Terminal | null>(null);
 	});
  const [newFavorite, setNewFavorite] = useState("");
 
- // Determine WS URL — connect via same origin (Caddy proxies /ssh to WS proxy)
+ // Determine WS URL — connect via same origin (Apache/Caddy proxies /ssh to WS proxy)
  const wsUrl = useMemo(() => {
  if (typeof window === "undefined") return "";
  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -56,20 +56,33 @@ const terminalRef = useRef<import("@xterm/xterm").Terminal | null>(null);
  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [serverId, sessionToken, reconnectKey]);
 
-  // Initialize xterm and WebSocket
-  useEffect(() => {
-    if (!wsUrl || !termRef.current) return;
+ // Initialize xterm and WebSocket
+ useEffect(() => {
+ if (!wsUrl || !termRef.current) return;
 
-    let disposed = false;
+ let disposed = false;
 
-    async function init() {
-      // Dynamic imports for xterm (client-only)
-      const { Terminal } = await import("@xterm/xterm");
-      const { FitAddon } = await import("@xterm/addon-fit");
+ async function init() {
+ // Dynamic imports for xterm (client-only)
+ const { Terminal } = await import("@xterm/xterm");
+ const { FitAddon } = await import("@xterm/addon-fit");
 
-      if (disposed || !termRef.current) return;
+ if (disposed || !termRef.current) return;
 
-      const term = new Terminal({
+ // ── Fetch SSH_WS_SECRET from server API ────────────────────
+ let wsSecret = "";
+ try {
+ const res = await fetch("/api/auth/ws-token");
+ if (res.ok) {
+ const data = await res.json();
+ wsSecret = data.secret || "";
+ }
+ } catch {
+ // If the API is unreachable, try connecting without secret
+ // (development mode may not require it)
+ }
+
+ const term = new Terminal({
         cursorBlink: true,
         fontSize: 14,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, 'Courier New', monospace",
@@ -107,8 +120,9 @@ const terminalRef = useRef<import("@xterm/xterm").Terminal | null>(null);
       terminalRef.current = term;
       fitAddonRef.current = fitAddon;
 
-      // Connect WebSocket
-      const ws = new WebSocket(wsUrl);
+ // Connect WebSocket
+ const finalWsUrl = wsSecret ? `${wsUrl}&secret=${encodeURIComponent(wsSecret)}` : wsUrl;
+ const ws = new WebSocket(finalWsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
