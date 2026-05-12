@@ -17,7 +17,9 @@ import next from "next";
 import { setupWebSocketServer } from "@/lib/ws/notification-ws";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = process.env.HOSTNAME || "0.0.0.0";
+// Bind to loopback only — Apache reverse proxy handles external traffic.
+// Binding 0.0.0.0 would expose the app directly, bypassing auth middleware.
+const hostname = dev ? "0.0.0.0" : "127.0.0.1";
 const port = parseInt(process.env.PORT || "3000", 10);
 
 async function main() {
