@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireApiPermission } from "@/lib/auth/require-api-permission";
+import { requireApiSession } from "@/lib/auth/require-api-session";
 import { sendChatRequest, createMessage, getConversationById } from "@/lib/ai/service";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
  * }
  */
 export async function POST(request: Request) {
- const authed = await requireApiPermission("ai:manage");
+ const authed = await requireApiSession();
  if (authed instanceof NextResponse) return authed;
  const { session } = authed;
 

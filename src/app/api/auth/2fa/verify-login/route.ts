@@ -11,6 +11,9 @@ import { verifyPending2faToken, createSessionToken, getSessionCookieName, getPen
 import { generateCsrfToken, getCsrfCookieName } from "@/lib/auth/csrf";
 import { auditUserAction, auditSystemAction } from "@/lib/audit/service";
 import { checkRateLimit, getClientIp, LOGIN_RATE_LIMIT } from "@/lib/rate-limit";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:2fa:verify-login");
 
 export async function POST(request: Request) {
 	try {
@@ -77,7 +80,7 @@ export async function POST(request: Request) {
 			},
 		});
 	} catch (error) {
-		console.error("[2fa/verify-login]", error);
+		logger.error("[2fa/verify-login]", error);
 		return NextResponse.json({ error: "验证失败，请重试" }, { status: 500 });
 	}
 }

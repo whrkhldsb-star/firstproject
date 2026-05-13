@@ -10,6 +10,9 @@ import { prisma } from "@/lib/db";
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:images:publish-from-storage");
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +103,7 @@ export async function POST(request: Request) {
 			publicUrl: `/api/images/${image.id}/file`,
 		}, { status: 201 });
 	} catch (error) {
-		console.error("[images/publish-from-storage]", error);
+		logger.error("[images/publish-from-storage]", error);
 		return NextResponse.json({ error: "从云盘发布失败" }, { status: 500 });
 	}
 }

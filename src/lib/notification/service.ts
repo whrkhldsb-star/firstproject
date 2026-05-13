@@ -1,4 +1,8 @@
 import { prisma } from "@/lib/db";
+import { pushNotification, pushUnreadCount } from "@/lib/ws/notification-ws";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("notification:service");
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -24,7 +28,7 @@ export type CreateNotificationInput = {
 /* ── CRUD ─────────────────────────────────────────────────── */
 
 export async function createNotification(input: CreateNotificationInput) {
-	return prisma.notification.create({
+	const record = await prisma.notification.create({
 		data: {
 			userId: input.userId,
 			type: input.type,
@@ -33,6 +37,25 @@ export async function createNotification(input: CreateNotificationInput) {
 			actionUrl: input.actionUrl ?? null,
 		},
 	});
+
+	// Push real-time WebSocket notification to the user
+	try {
+		pushNotification(input.userId, {
+			id: record.id,
+			title: record.title,
+			message: record.message,
+			actionUrl: record.actionUrl,
+			createdAt: record.createdAt.toISOString(),
+		});
+
+		// Also push updated unread count
+		const unreadCount = await getUnreadCount(input.userId);
+		pushUnreadCount(input.userId, unreadCount);
+	} catch (err) {
+		logger.warn("WS推送失败（用户可能不在线）", err);
+	}
+
+	return record;
 }
 
 export async function listUserNotifications(userId: string, opts?: { unreadOnly?: boolean; limit?: number }) {
@@ -53,23 +76,33 @@ export async function getUnreadCount(userId: string): Promise<number> {
 }
 
 export async function markAsRead(notificationId: string, userId: string) {
-	return prisma.notification.updateMany({
+	const result = prisma.notification.updateMany({
 		where: { id: notificationId, userId },
 		data: { isRead: true },
 	});
+	// Push updated unread count after marking as read
+	const unreadCount = await getUnreadCount(userId);
+	pushUnreadCount(userId, unreadCount);
+	return result;
 }
 
 export async function markAllAsRead(userId: string) {
-	return prisma.notification.updateMany({
+	const result = prisma.notification.updateMany({
 		where: { userId, isRead: false },
 		data: { isRead: true },
 	});
+	pushUnreadCount(userId, 0);
+	return result;
 }
 
 export async function deleteNotification(notificationId: string, userId: string) {
-	return prisma.notification.deleteMany({
+	const result = prisma.notification.deleteMany({
 		where: { id: notificationId, userId },
 	});
+	// Push updated unread count after deletion
+	const unreadCount = await getUnreadCount(userId);
+	pushUnreadCount(userId, unreadCount);
+	return result;
 }
 
 /* ── Helpers: create notifications for specific events ────── */

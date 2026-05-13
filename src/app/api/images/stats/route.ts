@@ -6,6 +6,9 @@ import { NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth/api-session";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:images:stats");
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +73,7 @@ export async function GET() {
 			uploadTrend,
 		});
 	} catch (error) {
-		console.error("[images/stats]", error);
+		logger.error("[images/stats]", error);
 		return NextResponse.json({ error: "获取统计信息失败" }, { status: 500 });
 	}
 }

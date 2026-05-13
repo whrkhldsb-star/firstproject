@@ -1,4 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "crypto";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("crypto");
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
@@ -12,7 +15,7 @@ function getEncryptionKey(): Buffer {
 		// Auto-generate for development
 		const generated = randomBytes(32).toString("hex");
 		process.env.ENCRYPTION_KEY = generated;
-		console.warn("[crypto] ENCRYPTION_KEY not set, auto-generated for development. Set it in .env for persistence.");
+		logger.warn("ENCRYPTION_KEY not set, auto-generated for development. Set it in .env for persistence.");
 	}
 	return scryptSync(process.env.ENCRYPTION_KEY!, "salt-vps-platform", 32);
 }

@@ -3,6 +3,7 @@
  * GET /api/docs/openapi.json
  */
 import { NextResponse } from "next/server";
+import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
 
 const spec = {
 	openapi: "3.0.3",
@@ -132,5 +133,7 @@ const spec = {
 };
 
 export async function GET() {
-	return NextResponse.json(spec);
+ const session = await requireApiSession();
+ if (!isSessionPayload(session)) return session;
+ return NextResponse.json(spec);
 }

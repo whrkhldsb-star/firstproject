@@ -5,6 +5,9 @@
 import { NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:dashboard:analytics");
 
 export const dynamic = "force-dynamic";
 
@@ -110,7 +113,7 @@ export async function GET(request: Request) {
 
 		return NextResponse.json(results);
 	} catch (error) {
-		console.error("[dashboard/analytics]", error);
+		logger.error("[dashboard/analytics]", error);
 		return NextResponse.json({ error: "获取分析数据失败" }, { status: 500 });
 	}
 }

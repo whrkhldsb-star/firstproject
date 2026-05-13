@@ -6,6 +6,9 @@ import { NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { verify as verifyTOTP } from "otplib";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:2fa:disable");
 
 export async function POST(request: Request) {
 	try {
@@ -40,7 +43,7 @@ export async function POST(request: Request) {
 
 		return NextResponse.json({ success: true });
 	} catch (error) {
-		console.error("[2fa/disable]", error);
+		logger.error("[2fa/disable]", error);
 		return NextResponse.json({ error: "禁用两步验证失败" }, { status: 500 });
 	}
 }

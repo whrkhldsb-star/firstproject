@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireApiPermission } from "@/lib/auth/require-api-permission";
+import { requireApiSession } from "@/lib/auth/require-api-session";
 import { fetchModelsFromProvider } from "@/lib/ai/service";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
  * Fetches available models from a provider's API
  */
 export async function GET(request: Request) {
-  try {
-    const authed = await requireApiPermission("ai:manage");
+ try {
+ const authed = await requireApiSession();
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
 

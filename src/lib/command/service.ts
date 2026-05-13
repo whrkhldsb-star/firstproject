@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 
 import { isProtectedByApproval } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
+import { notifyCommandPending, notifyCommandResult } from "@/lib/notification/service";
 
 import { createCommandSchema, reviewCommandSchema, type CreateCommandInput, type ReviewCommandInput } from "./schema";
 
@@ -375,25 +376,32 @@ export async function createCommandRequest(input: CreateCommandInput) {
     include: { targets: true },
   });
 
-  if (!requiresApproval) {
-    await markTargetsRunning(commandRequest.id);
-    const { totalCount, completedCount } = await executeTargets(commandRequest.id);
+ if (!requiresApproval) {
+ await markTargetsRunning(commandRequest.id);
+ const { totalCount, completedCount } = await executeTargets(commandRequest.id);
 
-    await prisma.commandRequest.update({ where: { id: commandRequest.id }, data: { status: totalCount > 0 && completedCount > 0 ? "COMPLETED" : "FAILED" } });
+ const finalStatus = totalCount > 0 && completedCount > 0 ? "COMPLETED" : "FAILED";
+ await prisma.commandRequest.update({ where: { id: commandRequest.id }, data: { status: finalStatus } });
 
-    await prisma.executionLog.create({
-      data: {
-        commandRequestId: commandRequest.id,
-        serverId: null,
-        summary:
-          completedCount > 0
-            ? `站内用户操作已直接进入真实 SSH 执行流程，成功完成 ${completedCount}/${totalCount} 个目标。`
-            : totalCount > 0
-              ? `站内用户操作已进入真实 SSH 执行流程，但 ${totalCount} 个目标均执行失败。`
-              : "站内用户操作已进入执行流程，但未找到可执行目标。",
-      },
-    });
-  }
+ await prisma.executionLog.create({
+ data: {
+ commandRequestId: commandRequest.id,
+ serverId: null,
+ summary:
+ completedCount > 0
+ ? `站内用户操作已直接进入真实 SSH 执行流程，成功完成 ${completedCount}/${totalCount} 个目标。`
+ : totalCount > 0
+ ? `站内用户操作已进入真实 SSH 执行流程，但 ${totalCount} 个目标均执行失败。`
+ : "站内用户操作已进入执行流程，但未找到可执行目标。",
+ },
+ });
+
+ // Notify requester of command result (no-approval flow)
+ notifyCommandResult(payload.requesterId, payload.title, completedCount > 0 ? "completed" : "failed").catch(() => {});
+ } else {
+ // Notify admins about pending command approval
+ notifyCommandPending(payload.requesterId, payload.title).catch(() => {});
+ }
 
   return { ...commandRequest, requiresApproval };
 }
@@ -423,37 +431,47 @@ export async function reviewCommandRequest(input: ReviewCommandInput) {
 
   const updated = await prisma.commandRequest.update({ where: { id: payload.commandRequestId }, data: { status: nextStatus } });
 
-  if (payload.approved) {
-    await prisma.executionLog.create({
-      data: {
-        commandRequestId: payload.commandRequestId,
-        serverId: null,
-        summary: "命令审批已通过，任务正在进入真实 SSH 执行器。",
-      },
-    });
+ if (payload.approved) {
+ await prisma.executionLog.create({
+ data: {
+ commandRequestId: payload.commandRequestId,
+ serverId: null,
+ summary: "命令审批已通过，任务正在进入真实 SSH 执行器。",
+ },
+ });
 
-    await runApprovedCommand(payload.commandRequestId);
+ // Notify requester: command approved
+ notifyCommandResult(request.requesterId, request.title, "approved").catch(() => {});
 
-    return prisma.commandRequest.findUniqueOrThrow({ where: { id: payload.commandRequestId } });
-  }
+ await runApprovedCommand(payload.commandRequestId);
 
-  await prisma.commandTarget.updateMany({
-    where: { commandRequestId: payload.commandRequestId },
-    data: {
-      status: "REJECTED",
-      finishedAt: new Date(),
-    },
-  });
+ // After execution, notify requester of the final result
+ const finalRequest = await prisma.commandRequest.findUniqueOrThrow({ where: { id: payload.commandRequestId } });
+ notifyCommandResult(request.requesterId, request.title, finalRequest.status === "COMPLETED" ? "completed" : "failed").catch(() => {});
 
-  await prisma.executionLog.create({
-    data: {
-      commandRequestId: payload.commandRequestId,
-      serverId: null,
-      summary: "命令审批已拒绝，任务不会进入执行队列。",
-    },
-  });
+ return finalRequest;
+ }
 
-  return updated;
+ await prisma.commandTarget.updateMany({
+ where: { commandRequestId: payload.commandRequestId },
+ data: {
+ status: "REJECTED",
+ finishedAt: new Date(),
+ },
+ });
+
+ await prisma.executionLog.create({
+ data: {
+ commandRequestId: payload.commandRequestId,
+ serverId: null,
+ summary: "命令审批已拒绝，任务不会进入执行队列。",
+ },
+ });
+
+ // Notify requester: command rejected
+ notifyCommandResult(request.requesterId, request.title, "rejected").catch(() => {});
+
+ return updated;
 }
 
 export async function listCommandRequests() {

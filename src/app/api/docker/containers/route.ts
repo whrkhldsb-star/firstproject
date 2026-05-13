@@ -1,15 +1,20 @@
 /**
  * Docker containers API — list, inspect, start/stop/restart, logs.
  * Uses Docker Engine API via unix socket /var/run/docker.sock
- * 
- * GET    /api/docker/containers          — list containers
- * GET    /api/docker/containers?id=xxx    — inspect one container
- * POST   /api/docker/containers           — start/stop/restart {id, action}
- * GET    /api/docker/containers?logs=xxx  — get container logs
+ *
+ * GET /api/docker/containers — list containers
+ * GET /api/docker/containers?id=xxx — inspect one container
+ * POST /api/docker/containers — start/stop/restart {id, action}
+ * GET /api/docker/containers?logs=xxx — get container logs
  */
 import { NextRequest, NextResponse } from "next/server";
-import { execSync } from "child_process";
+import { execFile } from "child_process";
+import { promisify } from "node:util";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
+import { createLogger } from "@/lib/logging";
+
+const execFileAsync = promisify(execFile);
+const logger = createLogger("api:docker:containers");
 
 const DOCKER_SOCKET = "/var/run/docker.sock";
 const DOCKER_API = "http://localhost";
@@ -24,23 +29,26 @@ function isValidTail(value: string): boolean {
 	return /^\d{1,5}$/.test(value) && parseInt(value, 10) <= 50000;
 }
 
-/** Use curl for Docker socket communication (fetch doesn't support unix sockets) */
-async function dockerCurl(path: string, method = "GET", body?: string): Promise<{ ok: boolean; status: number; data: unknown }> {
+/**
+ * Use curl for Docker socket communication (fetch doesn't support unix sockets).
+ * Uses execFile with array args — no shell interpolation, no injection risk.
+ */
+async function dockerCurl(apiPath: string, method = "GET", body?: string): Promise<{ ok: boolean; status: number; data: unknown }> {
 	const args = [
 		"--silent", "--show-error",
 		"-X", method,
 		"--unix-socket", DOCKER_SOCKET,
-		`${DOCKER_API}${path}`,
+		`${DOCKER_API}${apiPath}`,
 	];
 	if (body) {
 		args.push("-H", "Content-Type: application/json", "-d", body);
 	}
 	try {
-		const out = execSync(`curl ${args.map(a => `"${a}"`).join(" ")}`, {
+		const { stdout } = await execFileAsync("curl", args, {
 			timeout: 10000,
 			encoding: "utf-8",
 		});
-		return { ok: true, status: 200, data: JSON.parse(out) };
+		return { ok: true, status: 200, data: JSON.parse(stdout) };
 	} catch (e: unknown) {
 		const err = e as { stdout?: string; status?: number };
 		const data = err.stdout ? (() => { try { return JSON.parse(err.stdout); } catch { return err.stdout; } })() : null;
@@ -79,7 +87,7 @@ export async function GET(req: NextRequest) {
 		const result = await dockerCurl("/containers/json?all=true");
 		return NextResponse.json(result);
 	} catch (error) {
-		console.error("[docker/containers GET]", error);
+		logger.error("GET请求失败", error);
 		return NextResponse.json({ error: "Docker API 请求失败" }, { status: 500 });
 	}
 }
@@ -107,17 +115,17 @@ export async function POST(req: NextRequest) {
 			remove: `/containers/${id}?force=true`,
 		};
 
-		const method = action === "remove" ? "DELETE" : "POST";
-		const path = actionMap[action];
+		const httpMethod = action === "remove" ? "DELETE" : "POST";
+		const apiPath = actionMap[action];
 
-		if (!path) {
+		if (!apiPath) {
 			return NextResponse.json({ error: "无效操作" }, { status: 400 });
 		}
 
-		const result = await dockerCurl(path, method);
+		const result = await dockerCurl(apiPath, httpMethod);
 		return NextResponse.json(result);
 	} catch (error) {
-		console.error("[docker/containers POST]", error);
+		logger.error("POST请求失败", error);
 		return NextResponse.json({ error: "Docker 操作失败" }, { status: 500 });
 	}
 }

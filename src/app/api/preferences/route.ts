@@ -5,16 +5,17 @@
  * PUT  /api/preferences  — update preferences
  */
 import { NextResponse } from "next/server";
-import { getApiSession } from "@/lib/auth/api-session";
+import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:preferences");
 
 export async function GET() {
-	try {
-		const session = await getApiSession();
-		if (!session?.userId) {
-			return NextResponse.json({ error: "未授权" }, { status: 401 });
-		}
+	const session = await requireApiSession();
+	if (!isSessionPayload(session)) return session; // 401 response
 
+	try {
 		const user = await prisma.user.findUnique({
 			where: { id: session.userId },
 			select: { preferences: true },
@@ -36,17 +37,16 @@ export async function GET() {
 
 		return NextResponse.json(prefs);
 	} catch (error) {
-		console.error("[preferences GET]", error);
+		logger.error("[preferences GET]", error);
 		return NextResponse.json({ error: "获取偏好设置失败" }, { status: 500 });
 	}
 }
 
 export async function PUT(request: Request) {
+	const session = await requireApiSession();
+	if (!isSessionPayload(session)) return session; // 401 response
+
 	try {
-		const session = await getApiSession();
-		if (!session?.userId) {
-			return NextResponse.json({ error: "未授权" }, { status: 401 });
-		}
 
 		const body = await request.json();
 
@@ -57,7 +57,7 @@ export async function PUT(request: Request) {
 
 		return NextResponse.json({ ok: true });
 	} catch (error) {
-		console.error("[preferences PUT]", error);
+		logger.error("[preferences PUT]", error);
 		return NextResponse.json({ error: "保存偏好设置失败" }, { status: 500 });
 	}
 }

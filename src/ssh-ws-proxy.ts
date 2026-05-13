@@ -14,6 +14,9 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 import { canUseSshTerminal } from "./lib/auth/ssh-access";
 import { getAppSlug } from "./lib/branding";
+import { createLogger } from "./lib/logging";
+
+const logger = createLogger("ssh-ws-proxy");
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -49,8 +52,8 @@ export function requireSshWsSecret(env: Partial<NodeJS.ProcessEnv> = process.env
 		if (nodeEnv === "production") {
 			throw new Error("SSH_WS_SECRET must be set in production");
 		}
-		console.warn(
-			"[ssh-ws-proxy] ⚠ SSH_WS_SECRET is not set — skipping WS secret validation (development only). " +
+		logger.warn(
+			"⚠ SSH_WS_SECRET is not set — skipping WS secret validation (development only). " +
 			"Set SSH_WS_SECRET before deploying to production.",
 		);
 	}
@@ -188,7 +191,7 @@ function isOriginAllowed(req: import("http").IncomingMessage): boolean {
 	if (ALLOWED_ORIGINS.length === 0) {
 		// Strict: reject connections when no origins are configured.
 		// This prevents WebSocket CSRF when SSH_WS_ALLOWED_ORIGINS is missing.
-		console.error("[ssh-ws-proxy] SSH_WS_ALLOWED_ORIGINS is not configured — rejecting WebSocket connection. Set this env var to allow connections.");
+		logger.error("SSH_WS_ALLOWED_ORIGINS is not configured — rejecting WebSocket connection. Set this env var to allow connections.");
 		return false;
 	}
 	const origin = (req.headers.origin || "").trim().toLowerCase();

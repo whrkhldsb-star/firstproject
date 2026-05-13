@@ -7,6 +7,9 @@ import { NextResponse } from "next/server";
 import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { generateSecret, verify as verifyTOTP } from "otplib";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:2fa:setup");
 
 function buildOtpauthUrl(secret: string, username: string): string {
 	const label = encodeURIComponent(`VPS管控平台:${username}`);
@@ -35,7 +38,7 @@ export async function POST() {
 
 		return NextResponse.json({ secret, otpauthUrl });
 	} catch (error) {
-		console.error("[2fa/setup]", error);
+		logger.error("[2fa/setup]", error);
 		return NextResponse.json({ error: "设置两步验证失败" }, { status: 500 });
 	}
 }
@@ -54,7 +57,7 @@ export async function PUT(request: Request) {
 		const valid = verifyTOTP({ token: code, secret });
 		return NextResponse.json({ valid });
 	} catch (error) {
-		console.error("[2fa/verify]", error);
+		logger.error("[2fa/verify]", error);
 		return NextResponse.json({ error: "验证失败" }, { status: 500 });
 	}
 }

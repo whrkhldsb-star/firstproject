@@ -2,11 +2,25 @@
  * Server monitoring API — CPU, memory, disk, uptime, network stats.
  * GET /api/monitoring/stats
  * Requires authenticated session.
+ *
+ * Uses Node.js native APIs + /proc filesystem reads instead of execSync
+ * for better performance and zero injection risk.
  */
 import { NextResponse } from "next/server";
-import { execSync } from "child_process";
+import { readFileSync } from "node:fs";
 import os from "os";
+import { execFile } from "child_process";
+import { promisify } from "node:util";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
+import { createLogger } from "@/lib/logging";
+
+const execFileAsync = promisify(execFile);
+const logger = createLogger("api:monitoring:stats");
+
+/** Safely read a /proc file, returning empty string on failure */
+function readProc(path: string): string {
+	try { return readFileSync(path, "utf-8"); } catch { return ""; }
+}
 
 export async function GET() {
 	const session = await requireApiSession();
@@ -17,26 +31,30 @@ export async function GET() {
 		const freeMem = os.freemem();
 		const uptime = os.uptime();
 
-		// CPU usage per core (1-second sample)
-		let cpuUsage = "N/A";
-		try {
-			cpuUsage = execSync("top -bn1 | grep 'Cpu(s)' | awk '{print $2}'", { timeout: 5000, encoding: "utf-8" }).trim();
-		} catch { /* ok */ }
+		// CPU usage — parse /proc/stat (no subprocess needed)
+		const cpuUsage = getCpuUsagePercent();
 
 		// Load averages
 		const loadAvg = os.loadavg();
 
-		// Disk usage
+		// Disk usage — still needs df, but use execFile (array args, safe)
 		let diskInfo = "N/A";
 		try {
-			diskInfo = execSync("df -h / | tail -1 | awk '{print $2\"/\"$3\" (\"$5\" used)\"}'", { timeout: 5000, encoding: "utf-8" }).trim();
+			const { stdout } = await execFileAsync("df", ["-h", "/"], { timeout: 5000, encoding: "utf-8" });
+			const lines = stdout.trim().split("\n");
+			if (lines.length >= 2) {
+				const parts = lines[1].trim().split(/\s+/);
+				if (parts.length >= 5) {
+					diskInfo = `${parts[1]}/${parts[2]} (${parts[4]} used)`;
+				}
+			}
 		} catch { /* ok */ }
 
-		// Network stats
+		// Network stats — read /proc/net/dev directly
 		let netInfo: { iface: string; rx: string; tx: string }[] = [];
-		try {
-			const out = execSync("cat /proc/net/dev | tail -n +3", { timeout: 5000, encoding: "utf-8" });
-			for (const line of out.split("\n").filter(Boolean)) {
+		const netDev = readProc("/proc/net/dev");
+		if (netDev) {
+			for (const line of netDev.split("\n").slice(2)) {
 				const parts = line.trim().split(/\s+/);
 				if (parts.length >= 10 && !parts[0].startsWith("lo:")) {
 					netInfo.push({
@@ -46,13 +64,14 @@ export async function GET() {
 					});
 				}
 			}
-		} catch { /* ok */ }
+		}
 
-		// Top processes
+		// Top processes — still needs ps, but use execFile (array args, safe)
 		let topProcs: { pid: string; cpu: string; mem: string; cmd: string }[] = [];
 		try {
-			const out = execSync("ps aux --sort=-%mem | head -6 | tail -5", { timeout: 5000, encoding: "utf-8" });
-			for (const line of out.split("\n").filter(Boolean)) {
+			const { stdout } = await execFileAsync("ps", ["aux", "--sort=-%mem"], { timeout: 5000, encoding: "utf-8" });
+			const lines = stdout.trim().split("\n").slice(1, 6); // skip header, take top 5
+			for (const line of lines) {
 				const parts = line.trim().split(/\s+/);
 				if (parts.length >= 11) {
 					topProcs.push({ pid: parts[1], cpu: parts[2], mem: parts[3], cmd: parts.slice(10).join(" ").slice(0, 40) });
@@ -60,11 +79,8 @@ export async function GET() {
 			}
 		} catch { /* ok */ }
 
-		// Active TCP connections
-		let tcpConns = "N/A";
-		try {
-			tcpConns = execSync("ss -t -H | wc -l", { timeout: 3000, encoding: "utf-8" }).trim();
-		} catch { /* ok */ }
+		// Active TCP connections — read /proc/net/tcp directly
+		const tcpConns = getTcpConnectionCount();
 
 		return NextResponse.json({
 			hostname: os.hostname(),
@@ -86,13 +102,40 @@ export async function GET() {
 			disk: diskInfo,
 			network: netInfo,
 			topProcesses: topProcs,
-			tcpConnections: tcpConns,
+			tcpConnections: String(tcpConns),
 			timestamp: new Date().toISOString(),
 		});
 	} catch (error) {
-		console.error("[monitoring/stats]", error);
+		logger.error("获取监控数据失败", error);
 		return NextResponse.json({ error: "获取监控数据失败" }, { status: 500 });
 	}
+}
+
+/** Parse /proc/stat to get CPU usage percentage */
+function getCpuUsagePercent(): string {
+	const stat = readProc("/proc/stat");
+	const line = stat.split("\n")[0];
+	if (!line?.startsWith("cpu ")) return "N/A";
+	const parts = line.trim().split(/\s+/).map(Number);
+	// user + nice + system + idle + iowait + irq + softirq + steal
+	const idle = parts[4] + (parts[5] || 0);
+	const total = parts.slice(1).reduce((a, b) => a + b, 0);
+	if (total === 0) return "N/A";
+	const used = total - idle;
+	return ((used / total) * 100).toFixed(1);
+}
+
+/** Count established TCP connections from /proc/net/tcp */
+function getTcpConnectionCount(): number {
+	const tcp = readProc("/proc/net/tcp");
+	if (!tcp) return 0;
+	// State "01" = ESTABLISHED
+	let count = 0;
+	for (const line of tcp.split("\n").slice(1)) {
+		const parts = line.trim().split(/\s+/);
+		if (parts.length >= 4 && parts[3] === "01") count++;
+	}
+	return count;
 }
 
 function formatBytes(bytes: number): string {

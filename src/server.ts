@@ -15,6 +15,9 @@ import { createServer } from "node:http";
 import next from "next";
 
 import { setupWebSocketServer } from "@/lib/ws/notification-ws";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("server");
 
 const dev = process.env.NODE_ENV !== "production";
 // Bind to loopback only — Apache reverse proxy handles external traffic.
@@ -36,13 +39,11 @@ async function main() {
 	setupWebSocketServer(server);
 
 	server.listen(port, hostname, () => {
-		console.log(
-			`[server] Next.js (${dev ? "dev" : "prod"}) + WS listening on http://${hostname}:${port}`,
-		);
+		logger.info(`Next.js (${dev ? "dev" : "prod"}) + WS listening on http://${hostname}:${port}`);
 	});
 }
 
 main().catch((err) => {
-	console.error("[server] Failed to start:", err);
+	logger.error("Failed to start:", err);
 	process.exit(1);
 });

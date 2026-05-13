@@ -8,6 +8,9 @@ import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { unlink } from "node:fs/promises";
 import * as path from "node:path";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("api:images:batch");
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
 				return NextResponse.json({ error: "不支持的操作，可选: delete / moveAlbum / togglePublic" }, { status: 400 });
 		}
 	} catch (error) {
-		console.error("[images/batch]", error);
+		logger.error("[images/batch]", error);
 		return NextResponse.json({ error: "批量操作失败" }, { status: 500 });
 	}
 }

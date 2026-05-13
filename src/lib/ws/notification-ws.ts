@@ -13,6 +13,9 @@ import type { IncomingMessage } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import type { SessionPayload } from "@/lib/auth/session";
 import { verifySessionToken } from "@/lib/auth/session";
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("ws:notification");
 
 /* ── Connection Registry ─────────────────────────────────── */
 const userConnections = new Map<string, Set<WebSocket>>();
@@ -129,7 +132,7 @@ export function setupWebSocketServer(server: import("node:http").Server) {
 		});
 	});
 
-	console.log("[WS] WebSocket notification server initialized");
+	logger.info("WebSocket notification server initialized");
 }
 
 /* ── Convenience: push notification to user ──────────────── */

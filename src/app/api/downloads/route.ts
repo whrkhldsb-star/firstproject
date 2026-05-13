@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/require-session";
 import { prisma } from "@/lib/db";
 import { logError } from "@/lib/logging";
 import { auditUserAction } from "@/lib/audit/service";
+import { notifyDownloadResult } from "@/lib/notification/service";
 import {
   ensureAria2Daemon,
   addUri,
@@ -288,29 +289,31 @@ export async function POST(request: Request) {
         : null,
     };
 
-    // Execute asynchronously
-    if (relayMode) {
-      executeAria2RelayDownload(
-        task.id,
-        serverForExec,
-        allUrls,
-        resolvedTargetPath,
-        safeFileName,
-        maxSpeedKb,
-      ).catch((error) => {
-        logError("[DownloadAPI] Relay execution error:", error);
-      });
-    } else {
-      executeDirectDownload(
-        task.id,
-        serverForExec,
-        allUrls[0],
-        resolvedTargetPath,
-        safeFileName,
-      ).catch((error) => {
-        logError("[DownloadAPI] Direct execution error:", error);
-      });
-    }
+ // Execute asynchronously
+ if (relayMode) {
+ executeAria2RelayDownload(
+ task.id,
+ serverForExec,
+ allUrls,
+ resolvedTargetPath,
+ safeFileName,
+ maxSpeedKb,
+ session.userId,
+ ).catch((error) => {
+ logError("[DownloadAPI] Relay execution error:", error);
+ });
+ } else {
+ executeDirectDownload(
+ task.id,
+ serverForExec,
+ allUrls[0],
+ resolvedTargetPath,
+ safeFileName,
+ session.userId,
+ ).catch((error) => {
+ logError("[DownloadAPI] Direct execution error:", error);
+ });
+ }
 
     auditUserAction(session.userId, "download.create", {
       url,
@@ -636,20 +639,21 @@ export async function DELETE(request: Request) {
 /* ── Aria2 relay download (magnet/batch) ──────────────────── */
 
 async function executeAria2RelayDownload(
-  taskId: string,
-  server: {
-    host: string;
-    port: number;
-    username: string;
-    sshKeyId: string | null;
-    password: string | null;
-    storageNode?: { id: string; basePath: string | null } | null;
-    sshKey?: { privateKey: string } | null;
-  },
-  urls: string[],
-  targetPath: string,
-  _fileName?: string | null,
-  maxSpeedKb?: number | null,
+ taskId: string,
+ server: {
+ host: string;
+ port: number;
+ username: string;
+ sshKeyId: string | null;
+ password: string | null;
+ storageNode?: { id: string; basePath: string | null } | null;
+ sshKey?: { privateKey: string } | null;
+ },
+ urls: string[],
+ targetPath: string,
+ _fileName?: string | null,
+ maxSpeedKb?: number | null,
+ userId?: string,
 ) {
   void _fileName;
   const tempDir = `/tmp/app-relay-${taskId}`;
@@ -701,16 +705,17 @@ async function executeAria2RelayDownload(
 
         if (st.status === "complete") {
           done = true;
-        } else if (st.status === "error" || st.status === "removed") {
-          await prisma.downloadTask.update({
-            where: { id: taskId },
-            data: {
-              status: "FAILED",
-              errorMessage: `aria2 下载失败: ${st.status}`,
-            },
-          });
-          await cleanupTemp(tempDir);
-          return;
+ } else if (st.status === "error" || st.status === "removed") {
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: {
+ status: "FAILED",
+ errorMessage: `aria2 下载失败: ${st.status}`,
+ },
+ });
+ if (userId) notifyDownloadResult(userId, urls[0], "failed", `aria2 下载失败: ${st.status}`).catch(() => {});
+ await cleanupTemp(tempDir);
+ return;
         }
 	} catch (err) {
 		// aria2 might have purged the result; check if files exist
@@ -732,12 +737,13 @@ async function executeAria2RelayDownload(
 		} catch (err) {
 			logError("[DownloadAPI] Failed to remove aria2 download on timeout:", err);
 		}
-      await prisma.downloadTask.update({
-        where: { id: taskId },
-        data: { status: "FAILED", errorMessage: "下载超时（2小时限制）" },
-      });
-      await cleanupTemp(tempDir);
-      return;
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: { status: "FAILED", errorMessage: "下载超时（2小时限制）" },
+ });
+ if (userId) notifyDownloadResult(userId, urls[0], "failed", "下载超时（2小时限制）").catch(() => {});
+ await cleanupTemp(tempDir);
+ return;
     }
 
     // Phase 2: SFTP transfer to target VPS
@@ -751,14 +757,15 @@ async function executeAria2RelayDownload(
       (f) => !f.endsWith(".aria2") && !f.startsWith("."),
     );
 
-    if (filesToTransfer.length === 0) {
-      await prisma.downloadTask.update({
-        where: { id: taskId },
-        data: { status: "FAILED", errorMessage: "下载完成但未找到文件" },
-      });
-      await cleanupTemp(tempDir);
-      return;
-    }
+ if (filesToTransfer.length === 0) {
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: { status: "FAILED", errorMessage: "下载完成但未找到文件" },
+ });
+ if (userId) notifyDownloadResult(userId, urls[0], "failed", "下载完成但未找到文件").catch(() => {});
+ await cleanupTemp(tempDir);
+ return;
+ }
 
     // Calculate total file size
     let totalSize = 0;
@@ -794,29 +801,31 @@ async function executeAria2RelayDownload(
       });
     }
 
-    await prisma.downloadTask.update({
-      where: { id: taskId },
-      data: {
-        status: "COMPLETED",
-        progress: "下载并传输完成",
-        fileSize: String(totalSize),
-        totalBytes: String(totalSize),
-        completedBytes: String(totalSize),
-      },
-    });
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: {
+ status: "COMPLETED",
+ progress: "下载并传输完成",
+ fileSize: String(totalSize),
+ totalBytes: String(totalSize),
+ completedBytes: String(totalSize),
+ },
+ });
+ if (userId) notifyDownloadResult(userId, urls[0], "completed").catch(() => {});
 
-    await cleanupTemp(tempDir);
+ await cleanupTemp(tempDir);
 
   } catch (error) {
-    logError("[DownloadAPI] Relay download execution failed:", error);
-    try {
-      await prisma.downloadTask.update({
-        where: { id: taskId },
-        data: {
-          status: "FAILED",
-          errorMessage: getPublicDownloadError(error),
-        },
-      });
+ logError("[DownloadAPI] Relay download execution failed:", error);
+ try {
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: {
+ status: "FAILED",
+ errorMessage: getPublicDownloadError(error),
+ },
+ });
+ if (userId) notifyDownloadResult(userId, urls[0], "failed", getPublicDownloadError(error)).catch(() => {});
 	} catch (err) {
 		logError("[DownloadAPI] Failed to update task status after relay failure:", err);
 	}
@@ -826,78 +835,82 @@ async function executeAria2RelayDownload(
 
 /** Direct download (HTTP/HTTPS) on remote VPS — same as before */
 async function executeDirectDownload(
-  taskId: string,
-  server: {
-    host: string;
-    port: number;
-    username: string;
-    sshKeyId: string | null;
-    password: string | null;
-    storageNode?: { id: string; basePath: string | null } | null;
-    sshKey?: { privateKey: string } | null;
-  },
-  url: string,
-  targetPath: string,
-  fileName?: string | null,
+ taskId: string,
+ server: {
+ host: string;
+ port: number;
+ username: string;
+ sshKeyId: string | null;
+ password: string | null;
+ storageNode?: { id: string; basePath: string | null } | null;
+ sshKey?: { privateKey: string } | null;
+ },
+ url: string,
+ targetPath: string,
+ fileName?: string | null,
+ userId?: string,
 ) {
-  try {
-    const sshParams = await buildSshParamsFromServer(server, server.sshKey);
-    await execRemoteCommand({
-      ...sshParams,
-      command: `mkdir -p -- ${shellQuote(targetPath)}`,
-      timeout: 15000,
-    });
+ try {
+ const sshParams = await buildSshParamsFromServer(server, server.sshKey);
+ await execRemoteCommand({
+ ...sshParams,
+ command: `mkdir -p -- ${shellQuote(targetPath)}`,
+ timeout: 15000,
+ });
 
-    const downloadCmd = buildDirectDownloadCommand({
-      taskId,
-      url,
-      targetPath,
-      fileName,
-    });
+ const downloadCmd = buildDirectDownloadCommand({
+ taskId,
+ url,
+ targetPath,
+ fileName,
+ });
 
-    const { stdout: pidOutput, exitCode } = await execRemoteCommand({
-      ...sshParams,
-      command: downloadCmd,
-      timeout: 30000,
-    });
-    const pid = parseInt(pidOutput.trim(), 10);
+ const { stdout: pidOutput, exitCode } = await execRemoteCommand({
+ ...sshParams,
+ command: downloadCmd,
+ timeout: 30000,
+ });
+ const pid = parseInt(pidOutput.trim(), 10);
 
-    if (exitCode === 0 && pid > 0) {
-      await indexDownloadedFileEntry({
-        storageNode: server.storageNode,
-        targetPath,
-        fileName,
-        size: null,
-      });
+ if (exitCode === 0 && pid > 0) {
+ await indexDownloadedFileEntry({
+ storageNode: server.storageNode,
+ targetPath,
+ fileName,
+ size: null,
+ });
 
-      await prisma.downloadTask.update({
-        where: { id: taskId },
-        data: { pid, progress: "下载中..." },
-      });
-    } else {
-      const { stdout: logContent } = await execRemoteCommand({
-        ...sshParams,
-        command: getDirectDownloadLogCommand(taskId),
-        timeout: 8000,
-      });
-      await prisma.downloadTask.update({
-        where: { id: taskId },
-        data: {
-          status: "FAILED",
-          errorMessage: logContent.trim() || "无法启动下载进程",
-        },
-      });
-    }
-  } catch (error) {
-    logError("[DownloadAPI] Direct download execution failed:", error);
-    try {
-      await prisma.downloadTask.update({
-        where: { id: taskId },
-        data: {
-          status: "FAILED",
-          errorMessage: getPublicDownloadError(error),
-        },
-      });
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: { pid, progress: "下载中..." },
+ });
+ } else {
+ const { stdout: logContent } = await execRemoteCommand({
+ ...sshParams,
+ command: getDirectDownloadLogCommand(taskId),
+ timeout: 8000,
+ });
+ const errMsg = logContent.trim() || "无法启动下载进程";
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: {
+ status: "FAILED",
+ errorMessage: errMsg,
+ },
+ });
+ if (userId) notifyDownloadResult(userId, url, "failed", errMsg).catch(() => {});
+ }
+ } catch (error) {
+ logError("[DownloadAPI] Direct download execution failed:", error);
+ try {
+ await prisma.downloadTask.update({
+ where: { id: taskId },
+ data: {
+ status: "FAILED",
+ errorMessage: getPublicDownloadError(error),
+ },
+ });
+ if (userId) notifyDownloadResult(userId, url, "failed", getPublicDownloadError(error)).catch(() => {});
 	} catch (err) {
 		logError("[DownloadAPI] Failed to update task status after direct download failure:", err);
 	}

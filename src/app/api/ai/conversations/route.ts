@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { requireApiPermission } from "@/lib/auth/require-api-permission";
+import { requireApiSession } from "@/lib/auth/require-api-session";
 import {
-  createConversation,
-  listConversations,
-  serializeConversationListItem,
+ createConversation,
+ listConversations,
+ serializeConversationListItem,
 } from "@/lib/ai/service";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  try {
-    const authed = await requireApiPermission("ai:manage");
+ try {
+ const authed = await requireApiSession();
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
     const conversations = await listConversations(session.userId);
@@ -23,8 +23,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  try {
-    const authed = await requireApiPermission("ai:manage");
+ try {
+ const authed = await requireApiSession();
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
     const body = await request.json();

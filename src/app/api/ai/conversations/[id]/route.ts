@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireApiPermission } from "@/lib/auth/require-api-permission";
+import { requireApiSession } from "@/lib/auth/require-api-session";
 import {
  getConversationById,
  updateConversation,
@@ -11,11 +11,11 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+ _request: Request,
+ { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const authed = await requireApiPermission("ai:manage");
+ try {
+ const authed = await requireApiSession();
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
     const { id } = await params;
@@ -28,11 +28,11 @@ export async function GET(
 }
 
 export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
+ request: Request,
+ { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const authed = await requireApiPermission("ai:manage");
+ try {
+ const authed = await requireApiSession();
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
     const { id } = await params;
@@ -62,11 +62,11 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+ _request: Request,
+ { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const authed = await requireApiPermission("ai:manage");
+ try {
+ const authed = await requireApiSession();
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
     const { id } = await params;

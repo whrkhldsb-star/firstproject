@@ -3,6 +3,9 @@
  * Defaults to in-memory Map storage (single instance).
  * Automatically switches to Redis when REDIS_URL is configured (multi-instance).
  */
+import { createLogger } from "@/lib/logging";
+
+const logger = createLogger("rate-limit-store");
 
 export interface RateLimitStore {
 	/** Add a timestamp for the given key. Returns all timestamps in window. */
@@ -175,10 +178,10 @@ export function getRateLimitStore(): RateLimitStore {
 
 	const redisUrl = process.env.REDIS_URL?.trim();
 	if (redisUrl) {
-		console.log("[rate-limit-store] Using Redis backend:", redisUrl.replace(/\/\/.*@/, "//***@"));
+		logger.info("Using Redis backend", { url: redisUrl.replace(/\/\/.*@/, "//***@") });
 		_instance = new RedisRateLimitStore(redisUrl);
 	} else {
-		console.log("[rate-limit-store] Using in-memory backend (single-instance mode)");
+		logger.info("Using in-memory backend (single-instance mode)");
 		_instance = new MemoryRateLimitStore();
 	}
 
