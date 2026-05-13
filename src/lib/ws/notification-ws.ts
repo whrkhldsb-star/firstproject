@@ -52,15 +52,6 @@ export function broadcastToUser(userId: string, message: WsMessage) {
 	}
 }
 
-export function broadcastToAll(message: WsMessage) {
-	const payload = JSON.stringify(message);
-	for (const conns of userConnections.values()) {
-		for (const ws of conns) {
-			if (ws.readyState === WebSocket.OPEN) ws.send(payload);
-		}
-	}
-}
-
 /* ── WebSocket Server Setup ──────────────────────────────── */
 let wss: WebSocketServer | null = null;
 

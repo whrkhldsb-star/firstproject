@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { requireSession } from "@/lib/auth/require-session";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -9,18 +10,35 @@ const execFileAsync = promisify(execFile);
 
 export const dynamic = "force-dynamic";
 
+const postSchema = z.object({
+	serverId: z.string().min(1),
+	remotePath: z.string().min(1),
+	targetDir: z.string().optional(),
+	driver: z.string().optional(),
+	name: z.string().optional(),
+});
+
 export async function POST(request: NextRequest) {
 	const session = await requireSession();
 	if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
 
-	let body: { nodeId?: string; relativePath?: string; driver?: string; name?: string };
+	let rawBody: unknown;
 	try {
-		body = await request.json();
+		rawBody = await request.json();
 	} catch {
 		return NextResponse.json({ error: "无效请求体" }, { status: 400 });
 	}
 
-	const { nodeId, relativePath, driver = "LOCAL", name = "archive" } = body;
+	const parsed = postSchema.safeParse(rawBody);
+	if (!parsed.success) {
+		return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+	}
+
+	const body = parsed.data;
+	const driver = body.driver ?? "LOCAL";
+	const name = body.name ?? "archive";
+	const nodeId = body.serverId;
+	const relativePath = body.remotePath;
 
 	if (driver !== "LOCAL") {
 		return NextResponse.json(

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:quick-services:slug");
+
+const serviceActionSchema = z.object({ action: z.enum(["start", "stop", "sync"]) });
 
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
@@ -16,8 +19,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
 			return NextResponse.json({ error: "权限不足" }, { status: 403 });
 
 		const { slug } = await params;
-		const body = await request.json();
-		const action = (body.action ?? "").trim();
+		const parsed = serviceActionSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效，支持: start/stop/sync" }, { status: 400 });
+		const { action } = parsed.data;
 
 		if (action === "start") {
 			await startService(slug);

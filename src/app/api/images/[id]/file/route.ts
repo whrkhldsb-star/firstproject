@@ -4,10 +4,9 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
+import { UPLOAD_DIR } from "@/lib/image-bed/constants";
 
 export const dynamic = "force-dynamic";
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "image-bed");
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
 	const session = await requireApiSession();

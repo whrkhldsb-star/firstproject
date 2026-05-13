@@ -3,12 +3,15 @@
  * POST /api/auth/2fa/disable  { code }
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { verify as verifyTOTP } from "otplib";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:2fa:disable");
+
+const disableSchema = z.object({ code: z.string().min(1) });
 
 export async function POST(request: Request) {
 	try {
@@ -17,10 +20,9 @@ export async function POST(request: Request) {
 			return NextResponse.json({ error: "未登录或会话已过期" }, { status: 401 });
 		}
 
-		const { code } = (await request.json()) as { code: string };
-		if (!code) {
-			return NextResponse.json({ error: "缺少验证码" }, { status: 400 });
-		}
+		const parsed = disableSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { code } = parsed.data;
 
 		const user = await prisma.user.findUnique({
 			where: { id: session.userId },

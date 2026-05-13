@@ -3,12 +3,15 @@
  * POST /api/auth/2fa/enable  { code, secret }
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { verify as verifyTOTP } from "otplib";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:2fa:enable");
+
+const enableSchema = z.object({ code: z.string().min(1), secret: z.string().min(1) });
 
 export async function POST(request: Request) {
 	try {
@@ -17,10 +20,9 @@ export async function POST(request: Request) {
 			return NextResponse.json({ error: "未登录或会话已过期" }, { status: 401 });
 		}
 
-		const { code, secret } = (await request.json()) as { code: string; secret: string };
-		if (!code || !secret) {
-			return NextResponse.json({ error: "缺少验证码或密钥" }, { status: 400 });
-		}
+		const parsed = enableSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { code, secret } = parsed.data;
 
 		const valid = verifyTOTP({ token: code, secret });
 		if (!valid) {

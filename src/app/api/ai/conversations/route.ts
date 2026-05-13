@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireApiSession } from "@/lib/auth/require-api-session";
 import { createLogger } from "@/lib/logging";
 import {
@@ -10,6 +11,10 @@ import {
 const logger = createLogger("api:ai:conversations");
 
 export const dynamic = "force-dynamic";
+
+const createConversationSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+});
 
 export async function GET() {
 	try {
@@ -32,6 +37,10 @@ export async function POST(request: Request) {
 		if (authed instanceof NextResponse) return authed;
 		const { session } = authed;
 		const body = await request.json();
+		const parsed = createConversationSchema.safeParse(body);
+		if (!parsed.success) {
+			return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		}
 		const conv = await createConversation({ ...body, createdBy: session.userId });
 		return NextResponse.json(
 			{

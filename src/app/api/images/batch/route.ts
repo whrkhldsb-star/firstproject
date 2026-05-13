@@ -3,18 +3,20 @@
  * POST /api/images/batch  { action: "delete"|"moveAlbum"|"togglePublic", ids: string[], album?: string }
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getApiSession } from "@/lib/auth/api-session";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { unlink } from "node:fs/promises";
 import * as path from "node:path";
 import { createLogger } from "@/lib/logging";
+import { UPLOAD_DIR } from "@/lib/image-bed/constants";
 
 const logger = createLogger("api:images:batch");
 
-export const dynamic = "force-dynamic";
+const batchSchema = z.object({ action: z.enum(["delete", "moveAlbum", "togglePublic"]), ids: z.array(z.string()).min(1).max(100), album: z.string().optional() });
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "image-bed");
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
 	try {
@@ -22,12 +24,9 @@ export async function POST(request: Request) {
 		if (!session) {
 			return NextResponse.json({ error: "未登录或会话已过期" }, { status: 401 });
 		}
-		const body = await request.json();
-		const { action, ids, album } = body;
-
-		if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100) {
-			return NextResponse.json({ error: "ids 必须为 1-100 个元素的数组" }, { status: 400 });
-		}
+		const parsed = batchSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { action, ids, album } = parsed.data;
 
 		const isAdmin = sessionHasPermission(session, "user:read");
 		const whereClause = isAdmin

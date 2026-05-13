@@ -1,4 +1,3 @@
-import { prisma } from "@/lib/db";
 import { DEFAULT_ROLE_PERMISSIONS } from "./rbac";
 
 export type SshAccessSession = {
@@ -12,19 +11,4 @@ export function canUseSshTerminal(session: SshAccessSession) {
   });
 }
 
-export async function assertSshServerAccess(input: { session: SshAccessSession; serverId: string }) {
-  if (!canUseSshTerminal(input.session)) {
-    return { allowed: false as const, reason: "缺少 SSH 终端权限" };
-  }
 
-  const server = await prisma.server.findUnique({
-    where: { id: input.serverId },
-    select: { id: true, enabled: true },
-  });
-
-  if (!server || !server.enabled) {
-    return { allowed: false as const, reason: "VPS 不存在或已停用" };
-  }
-
-  return { allowed: true as const };
-}

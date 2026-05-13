@@ -4,12 +4,15 @@
  * PUT  /api/auth/2fa/setup — verify a code against a secret
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { generateSecret, verify as verifyTOTP } from "otplib";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:2fa:setup");
+
+const setupSchema = z.object({ code: z.string().min(1), secret: z.string().min(1) });
 
 function buildOtpauthUrl(secret: string, username: string): string {
 	const label = encodeURIComponent(`VPS管控平台:${username}`);
@@ -50,10 +53,9 @@ export async function PUT(request: Request) {
 			return NextResponse.json({ error: "未登录或会话已过期" }, { status: 401 });
 		}
 
-		const { code, secret } = (await request.json()) as { code: string; secret: string };
-		if (!code || !secret) {
-			return NextResponse.json({ error: "缺少验证码或密钥" }, { status: 400 });
-		}
+		const parsed = setupSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { code, secret } = parsed.data;
 		const valid = verifyTOTP({ token: code, secret });
 		return NextResponse.json({ valid });
 	} catch (error) {

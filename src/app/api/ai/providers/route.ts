@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:ai:providers");
@@ -12,6 +13,14 @@ import {
 } from "@/lib/ai/service";
 
 export const dynamic = "force-dynamic";
+
+const createProviderSchema = z.object({
+  name: z.string().min(1),
+  apiKey: z.string().min(1),
+  baseUrl: z.string().url(),
+  models: z.string(),
+  defaultModel: z.string().optional(),
+});
 
 export async function GET() {
  try {
@@ -32,6 +41,10 @@ export async function POST(request: Request) {
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
  const body = await request.json();
+ const parsed = createProviderSchema.safeParse(body);
+ if (!parsed.success) {
+	return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+ }
  const provider = await createProvider({ ...body, createdBy: session.userId });
  return NextResponse.json({ provider: serializeProvider(provider) }, { status: 201 });
  } catch (e: unknown) {

@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireApiSession } from "@/lib/auth/require-api-session";
 import { sendChatRequest, createMessage, getConversationById } from "@/lib/ai/service";
 
 export const dynamic = "force-dynamic";
+
+const chatSchema = z.object({
+  conversationId: z.string().optional(),
+  message: z.string().min(1),
+  model: z.string().optional(),
+  providerId: z.string().optional(),
+});
 
 /**
  * POST /api/ai/chat
@@ -29,22 +37,27 @@ export async function POST(request: Request) {
  if (authed instanceof NextResponse) return authed;
  const { session } = authed;
 
-  let body: {
-    conversationId: string;
-    content: string;
-    imageUrls?: string[];
-    imageBase64?: Array<{ mimeType: string; data: string }>;
-    fileAttachments?: Array<{ name: string; content: string }>;
-  };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "无效请求" }, { status: 400 });
-  }
+ let body: {
+   conversationId: string;
+   content: string;
+   imageUrls?: string[];
+   imageBase64?: Array<{ mimeType: string; data: string }>;
+   fileAttachments?: Array<{ name: string; content: string }>;
+ };
+ try {
+   body = await request.json();
+ } catch {
+   return NextResponse.json({ error: "无效请求" }, { status: 400 });
+ }
 
-  if (!body.conversationId || !body.content?.trim()) {
-    return NextResponse.json({ error: "缺少必要参数" }, { status: 400 });
-  }
+ const parsed = chatSchema.safeParse(body);
+ if (!parsed.success) {
+   return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+ }
+
+ if (!body.conversationId || !body.content?.trim()) {
+   return NextResponse.json({ error: "缺少必要参数" }, { status: 400 });
+ }
 
   let conv: Awaited<ReturnType<typeof getConversationById>>;
   try {

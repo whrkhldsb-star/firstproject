@@ -6,10 +6,9 @@ import { requireSession } from "@/lib/auth/require-session";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { logError } from "@/lib/logging";
+import { UPLOAD_DIR } from "@/lib/image-bed/constants";
 
 export const dynamic = "force-dynamic";
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "image-bed");
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
 	try {

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:quick-services");
+
+const installSchema = z.object({ slug: z.string().min(1), customPort: z.number().int().min(1).max(65535).optional() });
 
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
@@ -57,9 +60,9 @@ export async function POST(request: Request) {
 		if (!sessionHasPermission(session, "user:manage"))
 			return NextResponse.json({ error: "权限不足" }, { status: 403 });
 
-		const body = await request.json();
-		const slug = (body.slug ?? "").trim();
-		const customPort = body.customPort ? Number(body.customPort) : undefined;
+		const parsed = installSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { slug, customPort } = parsed.data;
 		const template = SERVICE_CATALOG.find((t) => t.slug === slug);
 		if (!template) return NextResponse.json({ error: "未知服务" }, { status: 400 });
 

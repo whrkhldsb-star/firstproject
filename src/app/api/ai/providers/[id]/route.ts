@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireApiSession } from "@/lib/auth/require-api-session";
 import { requireApiPermission } from "@/lib/auth/require-api-permission";
 import {
@@ -8,6 +9,14 @@ import {
 } from "@/lib/ai/service";
 
 export const dynamic = "force-dynamic";
+
+const updateProviderSchema = z.object({
+  name: z.string().min(1).optional(),
+  apiKey: z.string().min(1).optional(),
+  baseUrl: z.string().url().optional(),
+  models: z.string().optional(),
+  defaultModel: z.string().optional(),
+});
 
 export async function GET(
  _request: Request,
@@ -43,8 +52,12 @@ export async function PATCH(
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
  const { id } = await params;
- const body = await request.json();
- const provider = await updateProvider(id, session.userId, body);
+	const body = await request.json();
+	const parsed = updateProviderSchema.safeParse(body);
+	if (!parsed.success) {
+		return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+	}
+	const provider = await updateProvider(id, session.userId, body);
  return NextResponse.json({
  provider: {
  ...provider,

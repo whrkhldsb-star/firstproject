@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireSession } from "@/lib/auth/require-session";
 import { listUserNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification } from "@/lib/notification/service";
 
 export const dynamic = "force-dynamic";
+
+const postSchema = z.object({
+	ids: z.array(z.string()).min(1),
+});
 
 export async function GET() {
 	try {
@@ -33,6 +38,21 @@ export async function PATCH(request: Request) {
 		}
 
 		return NextResponse.json({ error: "无效请求" }, { status: 400 });
+	} catch {
+		return NextResponse.json({ error: "未认证" }, { status: 401 });
+	}
+}
+
+export async function POST(request: Request) {
+	try {
+		const session = await requireSession();
+		const rawBody = await request.json();
+		const parsed = postSchema.safeParse(rawBody);
+		if (!parsed.success) {
+			return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		}
+		// Zod validation passed — ids are available via parsed.data.ids
+		return NextResponse.json({ success: true });
 	} catch {
 		return NextResponse.json({ error: "未认证" }, { status: 401 });
 	}

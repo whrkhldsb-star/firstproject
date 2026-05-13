@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireApiSession } from "@/lib/auth/require-api-session";
 import {
  getConversationById,
@@ -9,6 +10,11 @@ import {
 } from "@/lib/ai/service";
 
 export const dynamic = "force-dynamic";
+
+const updateConversationSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  systemPrompt: z.string().max(2000).optional(),
+});
 
 export async function GET(
  _request: Request,
@@ -36,9 +42,13 @@ export async function PATCH(
 	if (authed instanceof NextResponse) return authed;
 	const { session } = authed;
     const { id } = await params;
-    const body = await request.json();
+	const body = await request.json();
+	const parsed = updateConversationSchema.safeParse(body);
+	if (!parsed.success) {
+		return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+	}
 
-    // Special action: clear all messages in the conversation
+	// Special action: clear all messages in the conversation
     if (body.clearMessages) {
       await clearConversationMessages(id, session.userId);
       const conv = await getConversationById(id, session.userId);

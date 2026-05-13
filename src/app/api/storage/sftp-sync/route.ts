@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
 
@@ -7,84 +8,19 @@ import { assertStorageAccess } from "@/lib/storage/access-control";
 import { decryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import { listRemoteDirectory, type SftpListEntry } from "@/lib/ssh/client";
 import { normalizeRemotePath, toClientStorageError } from "@/lib/storage/remote-path";
+import { mimeTypeFromExt, guessMimeType } from "@/lib/image-bed/constants";
 
 export const dynamic = "force-dynamic";
 
-/* ------------------------------------------------------------------ */
-/* MIME type inference from file extension                             */
-/* ------------------------------------------------------------------ */
-
-const EXTENSION_MIME_MAP: Record<string, string> = {
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".html": "text/html",
-  ".htm": "text/html",
-  ".css": "text/css",
-  ".js": "application/javascript",
-  ".mjs": "application/javascript",
-  ".ts": "application/typescript",
-  ".tsx": "application/typescript",
-  ".jsx": "application/javascript",
-  ".json": "application/json",
-  ".xml": "application/xml",
-  ".yaml": "application/x-yaml",
-  ".yml": "application/x-yaml",
-  ".csv": "text/csv",
-  ".pdf": "application/pdf",
-  ".zip": "application/zip",
-  ".tar": "application/x-tar",
-  ".gz": "application/gzip",
-  ".7z": "application/x-7z-compressed",
-  ".rar": "application/vnd.rar",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".bmp": "image/bmp",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".mkv": "video/x-matroska",
-  ".avi": "video/x-msvideo",
-  ".mov": "video/quicktime",
-  ".mp3": "audio/mpeg",
-  ".wav": "audio/wav",
-  ".ogg": "audio/ogg",
-  ".flac": "audio/flac",
-  ".aac": "audio/aac",
-  ".sh": "application/x-sh",
-  ".py": "text/x-python",
-  ".rb": "text/x-ruby",
-  ".java": "text/x-java-source",
-  ".c": "text/x-c",
-  ".cpp": "text/x-c++src",
-  ".h": "text/x-c",
-  ".go": "text/x-go",
-  ".rs": "text/x-rust",
-  ".php": "text/x-php",
-  ".log": "text/plain",
-  ".env": "text/plain",
-  ".conf": "text/plain",
-  ".ini": "text/plain",
-  ".toml": "text/x-toml",
-  ".sql": "application/sql",
-  ".db": "application/x-sqlite3",
-  ".exe": "application/x-msdownload",
-  ".dll": "application/x-msdownload",
-  ".so": "application/x-sharedlib",
-};
-
-function guessMimeType(fileName: string): string | null {
-  const lastDot = fileName.lastIndexOf(".");
-  if (lastDot === -1) return null;
-  const ext = fileName.slice(lastDot).toLowerCase();
-  return EXTENSION_MIME_MAP[ext] ?? null;
-}
+const sftpSyncSchema = z.object({
+	nodeId: z.string().min(1),
+	remotePath: z.string().optional(),
+	recursive: z.boolean().optional(),
+	maxDepth: z.number().int().min(1).max(10).optional(),
+});
 
 /* ------------------------------------------------------------------ */
-/* Path helpers                                                        */
+/* Path helpers */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -133,24 +69,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "缺少权限" }, { status: 403 });
   }
 
-  let body: {
-    nodeId?: string;
-    remotePath?: string;
-    recursive?: boolean;
-    maxDepth?: number;
-  };
-
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "无效的请求体" }, { status: 400 });
-  }
-
-  const { nodeId, remotePath, recursive = false, maxDepth = 1 } = body;
-
-	if (!nodeId || typeof nodeId !== "string") {
-		return NextResponse.json({ error: "缺少 nodeId 参数" }, { status: 400 });
-	}
+ const parsed = sftpSyncSchema.safeParse(await request.json());
+ if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+ const { nodeId, remotePath, recursive = false, maxDepth = 1 } = parsed.data;
 
 	// Look up the storage node and its connection details
   const node = await prisma.storageNode.findUnique({

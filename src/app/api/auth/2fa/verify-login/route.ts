@@ -3,6 +3,7 @@
  * POST /api/auth/2fa/verify-login { code }
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { cookies } from "next/headers";
 
 import { verify as verifyTOTP } from "otplib";
@@ -15,6 +16,8 @@ import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:2fa:verify-login");
 
+const verifyLoginSchema = z.object({ code: z.string().min(1) });
+
 export async function POST(request: Request) {
 	try {
 		// Rate limit 2FA attempts
@@ -24,8 +27,10 @@ export async function POST(request: Request) {
 			return NextResponse.json({ error: "验证尝试过于频繁，请稍后再试" }, { status: 429 });
 		}
 
-		const { code } = (await request.json()) as { code: string };
-		if (!code || !/^\d{4,8}$/.test(code)) {
+		const parsed = verifyLoginSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { code } = parsed.data;
+		if (!/^\d{4,8}$/.test(code)) {
 			return NextResponse.json({ error: "请输入有效的验证码" }, { status: 400 });
 		}
 

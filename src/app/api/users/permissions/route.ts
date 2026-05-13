@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
 
@@ -9,15 +10,34 @@ import { getStorageAccessUsage, parseNullableBigIntInput } from "@/lib/storage/a
 
 export const dynamic = "force-dynamic";
 
+
+const storageAccessItemSchema = z.object({
+	id: z.string().optional(),
+	storageNodeId: z.string().min(1),
+	pathPrefix: z.string().optional(),
+	canRead: z.boolean().optional(),
+	canWrite: z.boolean().optional(),
+	canDelete: z.boolean().optional(),
+	quotaBytes: z.union([z.string(), z.number(), z.null()]).optional(),
+	maxFileBytes: z.union([z.string(), z.number(), z.null()]).optional(),
+});
+
+const patchPermissionsSchema = z.object({
+	userId: z.string().min(1),
+	roleKeys: z.array(z.string()).optional(),
+	permissionKeys: z.array(z.string()).optional(),
+	storageAccess: z.array(storageAccessItemSchema).optional(),
+});
+
 type StorageAccessInput = {
-  id?: string;
-  storageNodeId: string;
-  pathPrefix?: string;
-  canRead?: boolean;
-  canWrite?: boolean;
-  canDelete?: boolean;
-  quotaBytes?: string | number | null;
-  maxFileBytes?: string | number | null;
+ id?: string;
+ storageNodeId: string;
+ pathPrefix?: string;
+ canRead?: boolean;
+ canWrite?: boolean;
+ canDelete?: boolean;
+ quotaBytes?: string | number | null;
+ maxFileBytes?: string | number | null;
 };
 
 function normalizePathPrefix(value: unknown) {
@@ -126,45 +146,37 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "缺少权限" }, { status: 403 });
   }
 
-  let body: { userId?: string; roleKeys?: string[]; permissionKeys?: string[]; storageAccess?: StorageAccessInput[] };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "无效的请求体" }, { status: 400 });
-  }
-
- if (!body.userId) {
- return NextResponse.json({ error: "缺少 userId 参数" }, { status: 400 });
- }
+ const parsed = patchPermissionsSchema.safeParse(await request.json());
+ if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
 
  // Prevent self-modification of permissions (privilege escalation)
- if (body.userId === session.userId) {
+ if (parsed.data.userId === session.userId) {
  return NextResponse.json({ error: "不能修改自己的权限" }, { status: 403 });
  }
 
-  const targetUser = await prisma.user.findUnique({ where: { id: body.userId }, select: { id: true, username: true } });
+  const targetUser = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, username: true } });
   if (!targetUser) {
     return NextResponse.json({ error: "用户不存在" }, { status: 404 });
   }
 
-  const roleKeys = Array.isArray(body.roleKeys) ? Array.from(new Set(body.roleKeys.map(String).filter(Boolean))) : undefined;
-  const permissionKeys = Array.isArray(body.permissionKeys) ? Array.from(new Set(body.permissionKeys.map(String).filter(isPermissionKey))) : undefined;
-  const storageAccess = Array.isArray(body.storageAccess) ? body.storageAccess : undefined;
+  const roleKeys = Array.isArray(parsed.data.roleKeys) ? Array.from(new Set(parsed.data.roleKeys.map(String).filter(Boolean))) : undefined;
+  const permissionKeys = Array.isArray(parsed.data.permissionKeys) ? Array.from(new Set(parsed.data.permissionKeys.map(String).filter(isPermissionKey))) : undefined;
+  const storageAccess = Array.isArray(parsed.data.storageAccess) ? parsed.data.storageAccess : undefined;
 
   await prisma.$transaction(async (tx) => {
     if (roleKeys) {
       const roles = await tx.role.findMany({ where: { key: { in: roleKeys } }, select: { id: true } });
-      await tx.userRole.deleteMany({ where: { userId: body.userId } });
+      await tx.userRole.deleteMany({ where: { userId: parsed.data.userId } });
       if (roles.length > 0) {
         await tx.userRole.createMany({
-          data: roles.map((role) => ({ userId: body.userId!, roleId: role.id })),
+          data: roles.map((role) => ({ userId: parsed.data.userId!, roleId: role.id })),
           skipDuplicates: true,
         });
       }
     }
 
     if (permissionKeys) {
-      const customRoleKey = `user:${body.userId}:custom`;
+      const customRoleKey = `user:${parsed.data.userId}:custom`;
       const customRole = await tx.role.upsert({
         where: { key: customRoleKey },
         update: { name: `${targetUser.username} 的自定义权限`, description: "用户权限配置页自动维护" },
@@ -179,18 +191,18 @@ export async function PATCH(request: Request) {
         });
       }
       await tx.userRole.upsert({
-        where: { userId_roleId: { userId: body.userId!, roleId: customRole.id } },
+        where: { userId_roleId: { userId: parsed.data.userId!, roleId: customRole.id } },
         update: {},
-        create: { userId: body.userId!, roleId: customRole.id },
+        create: { userId: parsed.data.userId!, roleId: customRole.id },
       });
     }
 
     if (storageAccess) {
-      await tx.userStorageAccess.deleteMany({ where: { userId: body.userId } });
+      await tx.userStorageAccess.deleteMany({ where: { userId: parsed.data.userId } });
       const validNodeIds = new Set((await tx.storageNode.findMany({ select: { id: true } })).map((node) => node.id));
       const rows = storageAccess
         .map((grant) => ({
-          userId: body.userId!,
+          userId: parsed.data.userId!,
           storageNodeId: String(grant.storageNodeId ?? ""),
           pathPrefix: normalizePathPrefix(grant.pathPrefix),
           canRead: grant.canRead ?? true,

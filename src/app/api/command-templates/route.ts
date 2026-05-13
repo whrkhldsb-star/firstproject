@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:command-templates");
@@ -8,6 +9,23 @@ import { requireSession } from "@/lib/auth/require-session";
 import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from "@/lib/command-template/service";
 
 export const dynamic = "force-dynamic";
+
+const postSchema = z.object({
+	name: z.string().min(1),
+	command: z.string().min(1),
+	description: z.string().optional(),
+	variables: z.array(z.string()).optional(),
+	tags: z.array(z.string()).optional(),
+});
+
+const patchSchema = z.object({
+	id: z.string().min(1),
+	name: z.string().min(1).optional(),
+	command: z.string().min(1).optional(),
+	description: z.string().optional(),
+	variables: z.array(z.string()).optional(),
+	tags: z.array(z.string()).optional(),
+});
 
 export async function GET() {
 	try {
@@ -36,7 +54,12 @@ export async function POST(request: Request) {
 		if (!sessionHasPermission(session, "command:create")) {
 			return NextResponse.json({ error: "权限不足" }, { status: 403 });
 		}
-		const body = await request.json();
+		const rawBody = await request.json();
+		const parsed = postSchema.safeParse(rawBody);
+		if (!parsed.success) {
+			return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		}
+		const body = parsed.data;
 		const template = await createTemplate({
 			name: body.name, description: body.description, command: body.command,
 			tags: body.tags, createdById: session.userId,
@@ -54,9 +77,13 @@ export async function PATCH(request: Request) {
 		if (!sessionHasPermission(session, "command:create")) {
 			return NextResponse.json({ error: "权限不足" }, { status: 403 });
 		}
-		const body = await request.json();
-		if (!body.id) return NextResponse.json({ error: "缺少模板 ID" }, { status: 400 });
-		const result = await updateTemplate(body.id, body);
+		const rawBody = await request.json();
+		const parsed = patchSchema.safeParse(rawBody);
+		if (!parsed.success) {
+			return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		}
+		const { id, ...updates } = parsed.data;
+		const result = await updateTemplate(id, updates);
 		return NextResponse.json({ template: result });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "更新失败";

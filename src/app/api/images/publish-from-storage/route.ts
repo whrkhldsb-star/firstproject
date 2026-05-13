@@ -4,6 +4,7 @@
  * Body: { storageNodeId, relativePath, filename?, album? }
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getApiSession } from "@/lib/auth/api-session";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
@@ -11,24 +12,13 @@ import { writeFile, mkdir, readFile } from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { createLogger } from "@/lib/logging";
+import { UPLOAD_DIR, IMAGE_EXTENSIONS, mimeTypeFromExt } from "@/lib/image-bed/constants";
 
 const logger = createLogger("api:images:publish-from-storage");
 
+const publishSchema = z.object({ storageNodeId: z.string().min(1), relativePath: z.string().min(1), filename: z.string().optional(), album: z.string().optional() });
+
 export const dynamic = "force-dynamic";
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "image-bed");
-
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".bmp", ".ico", ".tiff"]);
-
-function mimeTypeFromExt(ext: string): string {
-	const map: Record<string, string> = {
-		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-		".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
-		".svg": "image/svg+xml", ".bmp": "image/bmp", ".ico": "image/x-icon",
-		".tiff": "image/tiff",
-	};
-	return map[ext.toLowerCase()] || "application/octet-stream";
-}
 
 export async function POST(request: Request) {
 	try {
@@ -40,12 +30,9 @@ export async function POST(request: Request) {
 			return NextResponse.json({ error: "缺少云盘读取权限" }, { status: 403 });
 		}
 
-		const body = await request.json();
-		const { storageNodeId, relativePath, filename, album } = body;
-
-		if (!storageNodeId || !relativePath) {
-			return NextResponse.json({ error: "storageNodeId 和 relativePath 必填" }, { status: 400 });
-		}
+		const parsed = publishSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { storageNodeId, relativePath, filename, album } = parsed.data;
 
 		// Verify the storage node exists and is accessible
 		const storageNode = await prisma.storageNode.findUnique({

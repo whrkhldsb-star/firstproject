@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
 
@@ -6,10 +7,10 @@ import { prisma } from "@/lib/db";
 import { assertStorageAccess } from "@/lib/storage/access-control";
 import { decryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import {
-  deleteRemoteFile,
-  renameRemoteFile,
-  readRemoteFile,
-  writeRemoteFile,
+ deleteRemoteFile,
+ renameRemoteFile,
+ readRemoteFile,
+ writeRemoteFile,
 } from "@/lib/ssh/client";
 import { normalizeRemoteTargetPath, toClientStorageError } from "@/lib/storage/remote-path";
 import { createLogger } from "@/lib/logging";
@@ -18,26 +19,41 @@ const logger = createLogger("api:storage:sftp-ops");
 
 export const dynamic = "force-dynamic";
 
+const postSchema = z.object({
+  serverId: z.string().min(1),
+  action: z.enum(["mkdir", "rename", "delete", "chmod"]),
+  path: z.string().min(1),
+  target: z.string().optional(),
+  mode: z.string().optional(),
+});
+
 type SftpOpsBody = {
-  action: "delete" | "rename" | "read" | "write";
-  nodeId: string;
-  path: string;
-  newPath?: string;
-  content?: string;
-  isDirectory?: boolean;
+ action: "delete" | "rename" | "read" | "write";
+ nodeId: string;
+ path: string;
+ newPath?: string;
+ content?: string;
+ isDirectory?: boolean;
 };
 
 export async function POST(request: Request) {
   const session = await requireSession();
 
-  let body: SftpOpsBody;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "无效的请求体" }, { status: 400 });
-  }
+ let rawBody: unknown;
+ try {
+ rawBody = await request.json();
+ } catch {
+ return NextResponse.json({ error: "无效的请求体" }, { status: 400 });
+ }
 
-  const { action, nodeId, path: remotePath } = body;
+ const zodResult = postSchema.safeParse(rawBody);
+ if (!zodResult.success) {
+ return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+ }
+
+ let body: SftpOpsBody = rawBody as SftpOpsBody;
+
+ const { action, nodeId, path: remotePath } = body;
 
   if (!nodeId) {
     return NextResponse.json({ error: "缺少 nodeId 参数" }, { status: 400 });

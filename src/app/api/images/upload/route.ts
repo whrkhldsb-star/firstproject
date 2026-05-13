@@ -9,10 +9,9 @@ import { verifyBearerToken } from "@/lib/auth/bearer-token";
 import { prisma } from "@/lib/db";
 import { logError } from "@/lib/logging";
 import { extractMetadata, generateThumbnail, convertToWebP, convertToAVIF } from "@/lib/image/service";
+import { UPLOAD_DIR } from "@/lib/image-bed/constants";
 
 export const dynamic = "force-dynamic";
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads", "image-bed");
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 const ALLOWED_MIME_PREFIXES = ["image/"];
 

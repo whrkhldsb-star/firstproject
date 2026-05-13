@@ -5,11 +5,22 @@
  * PUT  /api/preferences  — update preferences
  */
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:preferences");
+
+const prefsSchema = z.object({
+	sidebarCollapsed: z.boolean().optional(),
+	defaultPage: z.string().optional(),
+	dashboardWidgets: z.array(z.string()).optional(),
+	notificationsEnabled: z.boolean().optional(),
+	notificationSound: z.boolean().optional(),
+	autoRefreshInterval: z.number().int().min(0).optional(),
+	compactMode: z.boolean().optional(),
+});
 
 export async function GET() {
 	const session = await requireApiSession();
@@ -48,11 +59,12 @@ export async function PUT(request: Request) {
 
 	try {
 
-		const body = await request.json();
+		const parsed = prefsSchema.safeParse(await request.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
 
 		await prisma.user.update({
 			where: { id: session.userId },
-			data: { preferences: body },
+			data: { preferences: JSON.parse(JSON.stringify(parsed.data)) },
 		});
 
 		return NextResponse.json({ ok: true });

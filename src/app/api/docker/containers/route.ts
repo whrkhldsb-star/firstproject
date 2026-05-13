@@ -9,11 +9,14 @@
  * GET /api/docker/containers?logs=xxx — get container logs
  */
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import http from "node:http";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
 import { createLogger } from "@/lib/logging";
 
 const logger = createLogger("api:docker:containers");
+
+const containerActionSchema = z.object({ id: z.string().min(1), action: z.enum(["start", "stop", "restart", "remove"]) });
 
 const DOCKER_SOCKET = "/var/run/docker.sock";
 const DOCKER_API_HOST = "localhost";
@@ -112,11 +115,9 @@ export async function POST(req: NextRequest) {
 	if (!isSessionPayload(session)) return session; // 401 response
 
 	try {
-		const { id, action } = await req.json() as { id: string; action: "start" | "stop" | "restart" | "remove" };
-
-		if (!id || !action) {
-			return NextResponse.json({ error: "缺少容器ID或操作" }, { status: 400 });
-		}
+		const parsed = containerActionSchema.safeParse(await req.json());
+		if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+		const { id, action } = parsed.data;
 
 		// Validate container ID to prevent path traversal
 		if (!isValidDockerId(id)) {
@@ -131,9 +132,6 @@ export async function POST(req: NextRequest) {
 		};
 
 		const target = actionMap[action];
-		if (!target) {
-			return NextResponse.json({ error: "无效操作" }, { status: 400 });
-		}
 
 		const result = await dockerRequest(target.path, target.method);
 		return NextResponse.json(result);
