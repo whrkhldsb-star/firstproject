@@ -69,7 +69,7 @@ export async function GET(request: Request) {
 			}),
 			CachePresets.shortLived,
 		);
-	} catch (error) {
+	} catch (_error) {
 		return NextResponse.json({ error: "获取图片列表失败" }, { status: 500 });
 	}
 }

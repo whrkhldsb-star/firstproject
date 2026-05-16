@@ -52,7 +52,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 				"Content-Disposition": `inline; filename="${image.filename}"`,
 			},
 		});
-	} catch (error) {
+	} catch (_error) {
 		return NextResponse.json({ error: "获取图片失败" }, { status: 500 });
 	}
 }

@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db";
 import { execSync, exec } from "child_process";
 import { promisify } from "util";
-import net from "net";
 
 const run = promisify(exec);
 
@@ -28,7 +27,7 @@ const PORT_MAX_ATTEMPTS = 50;
 /** Actually do a synchronous bind check (the reliable one) */
 export function isPortAvailableSync(port: number): boolean {
 	try {
-		const result = execSync(
+		execSync(
 			`node -e "const n=require('net');const s=n.createServer();s.on('error',()=>{process.exit(1)});s.listen(${port},'0.0.0.0',()=>{s.close();process.exit(0)})"`,
 			{ timeout: 5000 },
 		);
@@ -71,11 +70,9 @@ export function getUsedPorts(): number[] {
 
 
 import type { ServiceTemplate } from "./types";
-import { SERVICE_CATALOG } from "./catalog";
 
 // Re-export for backward compatibility
 export type { ServiceTemplate } from "./types";
-export { SERVICE_CATALOG } from "./catalog";
 
 
 /* ── CRUD ──────────────────────────────────────────────────────── */

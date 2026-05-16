@@ -1,5 +1,5 @@
 import { requireSession } from "@/lib/auth/require-session";
-import { OFFICE_MIME_TYPES, ARCHIVE_MIME_TYPES, CSV_MIME_TYPES, MARKDOWN_MIME_TYPES, EXTENDED_TEXT_MIME_TYPES, IMAGE_MIME_SET, AUDIO_MIME_SET, VIDEO_MIME_SET } from "@/lib/storage/mime-constants";
+import { OFFICE_MIME_TYPES, ARCHIVE_MIME_TYPES, CSV_MIME_TYPES, MARKDOWN_MIME_TYPES, EXTENDED_TEXT_MIME_TYPES } from "@/lib/storage/mime-constants";
 import { MediaPreviewClient } from "./media-preview-client";
 import { TextPreviewClient } from "./text-preview-client";
 import { MarkdownPreviewClient } from "./markdown-preview-client";
@@ -151,7 +151,6 @@ export default async function FilePreviewPage({ searchParams }: PreviewPageProps
 						<OfficePreviewClient href={href} name={name} driver={driver} />
 					) : isArchive ? (
 						<ArchivePreviewClient
-							href={href}
 							name={name}
 							nodeId={nodeId}
 							relativePath={relativePath}

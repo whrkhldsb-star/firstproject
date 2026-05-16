@@ -9,15 +9,15 @@ const logger = createLogger("rate-limit-store");
 
 export interface RateLimitStore {
 	/** Add a timestamp for the given key. Returns all timestamps in window. */
-	addAndGetWindow(key: string, timestamp: number, windowMs: number): Promise<number[]>;
+	addAndGetWindow(_key: string, _timestamp: number, _windowMs: number): Promise<number[]>;
 	/** Increment a counter for key-based rate limiting. */
-	increment(key: string, windowMs: number): Promise<{ count: number; ttl: number }>;
+	increment(_key: string, _windowMs: number): Promise<{ count: number; ttl: number }>;
 	/** Get the current count for a key */
-	get(key: string): Promise<number | null>;
+	get(_key: string): Promise<number | null>;
 	/** Set a value with optional TTL */
-	set(key: string, value: number, ttlMs?: number): Promise<void>;
+	set(_key: string, _value: number, _ttlMs?: number): Promise<void>;
 	/** Delete a key */
-	delete(key: string): Promise<void>;
+	delete(_key: string): Promise<void>;
 }
 
 // ── In-memory implementation ────────────────────────────────────
@@ -105,7 +105,7 @@ class RedisRateLimitStore implements RateLimitStore {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private _client: any = null;
 
-	constructor(private url: string) {}
+	constructor(private _url: string) {}
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	private async getClient(): Promise<any> {
@@ -118,7 +118,7 @@ class RedisRateLimitStore implements RateLimitStore {
 		} catch {
 			throw new Error("redis package is not installed. Run: npm install redis");
 		}
-		this._client = redisModule.createClient({ url: this.url });
+		this._client = redisModule.createClient({ url: this._url });
 		await this._client.connect();
 		return this._client;
 	}

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { csrfFetch } from "@/lib/auth/csrf-client";
+import { useState, useEffect } from "react";
 
 type CsvState = { loading: true } | { loading: false; rows: string[][] | null; error: string | null; raw: string | null };
 

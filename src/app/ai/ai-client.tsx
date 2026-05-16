@@ -1,9 +1,8 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { Provider, ConvItem, Message, ModelInfo, ModelCapabilities, FileAttachment, ToolCallEvent, ToolApprovalNeeded } from "./ai-types";
-import { PROVIDER_TYPES, COMMON_BASE_URLS, DEFAULT_PROV_FORM, DEFAULT_SETTINGS_FORM } from "./ai-types";
+import type { Provider, ConvItem, Message, ModelCapabilities, FileAttachment, ToolCallEvent, ToolApprovalNeeded, ModelInfo } from "./ai-types";
+import { DEFAULT_PROV_FORM, DEFAULT_SETTINGS_FORM } from "./ai-types";
 import { detectCapabilities, readFileAsText, readFileAsDataURL, categorizeFile, formatAllowedTypes, buildAcceptString } from "./ai-file-helpers";
 import { renderContent, copyToClipboard } from "./ai-markdown-renderer";
 import { AiSidebar } from "./ai-sidebar";
@@ -423,8 +422,7 @@ export function AiClient({
  } else if (parsed.type === "tool_result") {
   // 工具执行结果
   const success = parsed.success as boolean;
-  const toolCallId = parsed.toolCallId as string;
-  if (success) {
+	if (success) {
    setStreamContent((prev) => prev + `\n✅ 操作执行成功`);
   } else {
    setStreamContent((prev) => prev + `\n❌ 操作执行失败: ${JSON.stringify(parsed.data).slice(0, 200)}`);
@@ -589,10 +587,7 @@ if (data.conversation) {
     }
   };
 
- // Auto-detect vision from selected model
- const selectedModelInfo = modelList.find((m) => m.id === settingsForm.model);
-
- return (
+	return (
     <div className="flex h-[calc(100vh-0px)] overflow-hidden">
       {/* ── Left Sidebar: Conversation List ───────────────────── */}
       <AiSidebar
@@ -612,7 +607,6 @@ if (data.conversation) {
         {/* Chat header */}
         <AiChatHeader
           activeConv={activeConv}
-          activeConvId={activeConvId!}
           activeProvider={activeProvider ?? null}
           currentModelCaps={currentModelCaps}
           onToggleSidebar={() => setShowSidebar(true)}

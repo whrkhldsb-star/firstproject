@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo } from "react";
 import DOMPurify from "dompurify";
-import { csrfFetch } from "@/lib/auth/csrf-client";
 
 /** Sanitize HTML to prevent XSS while preserving safe formatting elements */
 function sanitizeHtml(html: string): string {

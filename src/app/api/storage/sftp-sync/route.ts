@@ -8,7 +8,7 @@ import { assertStorageAccess } from "@/lib/storage/access-control";
 import { decryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import { listRemoteDirectory, type SftpListEntry } from "@/lib/ssh/client";
 import { normalizeRemotePath, toClientStorageError } from "@/lib/storage/remote-path";
-import { mimeTypeFromExt, guessMimeType } from "@/lib/image-bed/constants";
+import { guessMimeType } from "@/lib/image-bed/constants";
 import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";

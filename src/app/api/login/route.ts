@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { authenticateUser } from "@/lib/auth/service";
-import { createSessionToken, getSessionCookieName, createPending2faToken, getPending2faCookieName, verifyPending2faToken } from "@/lib/auth/session";
+import { createSessionToken, getSessionCookieName, createPending2faToken, getPending2faCookieName } from "@/lib/auth/session";
 import { auditUserAction, auditSystemAction } from "@/lib/audit/service";
 import { createLogger } from "@/lib/logging";
 import { checkRateLimit, getClientIp, LOGIN_RATE_LIMIT, LOGIN_SLOW_RATE_LIMIT, isAccountLocked, recordLoginFailure, clearLoginFailure } from "@/lib/rate-limit";

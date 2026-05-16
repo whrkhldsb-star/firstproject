@@ -536,11 +536,11 @@ const handleSync = async () => {
     setDeleteLoading(true);
     setError(null);
     try {
-      const fullPath = joinPath(remotePath, entry.name);
-      const data = await csrfFetch("/api/storage/sftp-ops", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+const fullPath = joinPath(remotePath, entry.name);
+		const _data = await csrfFetch("/api/storage/sftp-ops", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
           action: "delete",
           nodeId: selectedNodeId,
           path: fullPath,
@@ -562,11 +562,11 @@ const handleSync = async () => {
     setError(null);
     try {
       const oldFullPath = joinPath(remotePath, entry.name);
-      const newFullPath = joinPath(remotePath, newName);
-      const data = await csrfFetch("/api/storage/sftp-ops", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+const newFullPath = joinPath(remotePath, newName);
+		const _data = await csrfFetch("/api/storage/sftp-ops", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
           action: "rename",
           nodeId: selectedNodeId,
           path: oldFullPath,

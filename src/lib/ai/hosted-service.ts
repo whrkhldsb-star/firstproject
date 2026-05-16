@@ -53,7 +53,7 @@ export async function createHostedAction(input: {
   args: Record<string, unknown>;
   userId: string;
 }) {
-  const { conversationId, messageId, toolCallId, tool, args, userId } = input;
+	const { conversationId, messageId, tool, args, userId } = input;
 
   return prisma.aiHostedAction.create({
     data: {

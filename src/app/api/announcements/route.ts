@@ -13,15 +13,8 @@ const announcementPostSchema = z.object({
   startsAt: z.string().optional(),
 });
 
-const announcementPatchSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().optional(),
-  content: z.string().optional(),
-  type: z.enum(["info", "warning", "urgent"]).optional(),
-  active: z.boolean().optional(),
-});
 
-export const dynamic = "force-dynamic";
+export const dynamic= "force-dynamic";
 export async function GET(request: Request) {
 	try {
 		const session = await requireSession();

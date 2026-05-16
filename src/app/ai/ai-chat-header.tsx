@@ -1,14 +1,12 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import type { ConvItem, Provider, Message, ModelCapabilities, ModelInfo } from "./ai-types";
+import type { ConvItem, Provider, ModelCapabilities } from "./ai-types";
 
 interface ChatHeaderProps {
-  activeConv: ConvItem;
-  activeConvId: string;
-  activeProvider: Provider | null;
-  currentModelCaps: ModelCapabilities;
-  onToggleSidebar: () => void;
+	activeConv: ConvItem;
+	activeProvider: Provider | null;
+	currentModelCaps: ModelCapabilities;
+	onToggleSidebar: () => void;
   onToggleSettings: () => void;
   onClearMessages: () => void;
   onRenameConv: () => void;
@@ -17,9 +15,8 @@ interface ChatHeaderProps {
 
 export function AiChatHeader({
   activeConv,
-  activeConvId,
-  activeProvider,
-  currentModelCaps,
+	activeProvider,
+	currentModelCaps,
   onToggleSidebar,
   onToggleSettings,
   onClearMessages,

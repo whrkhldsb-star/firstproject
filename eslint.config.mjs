@@ -6,10 +6,15 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
-    rules: {
-      "react-hooks/set-state-in-effect": "warn",
-      "@typescript-eslint/no-explicit-any": "warn",
-    },
+		rules: {
+			"react-hooks/set-state-in-effect": "warn",
+			"@typescript-eslint/no-explicit-any": "warn",
+			"@typescript-eslint/no-unused-vars": ["warn", {
+				argsIgnorePattern: "^_",
+				varsIgnorePattern: "^_",
+				caughtErrorsIgnorePattern: "^_",
+			}],
+		},
   },
   {
     files: ["**/__tests__/**/*.{ts,tsx}", "**/*.test.{ts,tsx}"],

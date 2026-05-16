@@ -81,7 +81,7 @@ setCatalog(data.catalog ?? []);
 	}, [catalog, fetchCatalog]);
 
 	// Debounced port availability check
-	const checkPortAvailability = useCallback(async (port: number) => {
+	const checkPortAvailability = useCallback(async (_port: number) => {
 		setPortCheck({ available: false, usedBy: null, checking: true });
 		try {
 			const data = await csrfFetch("/api/quick-services");
@@ -136,7 +136,7 @@ setPortCheck({ available: data.available, usedBy: data.usedBy ?? null, checking:
 		setActionSlug(installDialog.slug);
 		closeInstallDialog();
 		try {
-			const data = await csrfFetch("/api/quick-services", {
+			const _data = await csrfFetch("/api/quick-services", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ slug: installDialog.slug, customPort: port }),
@@ -171,7 +171,7 @@ setPortCheck({ available: data.available, usedBy: data.usedBy ?? null, checking:
 		if (!confirm(`确定要卸载吗？容器将被删除，数据卷保留。`)) return;
 		setActionSlug(slug);
 		try {
-			const data = await csrfFetch(`/api/quick-services/${slug}`, { method: "DELETE" });
+			const _data = await csrfFetch(`/api/quick-services/${slug}`, { method: "DELETE" });
 			setMessage({ type: "ok", text: `已卸载` });
 			fetchCatalog();
 		} catch (err) {

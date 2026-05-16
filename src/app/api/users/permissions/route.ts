@@ -30,16 +30,6 @@ const patchPermissionsSchema = z.object({
 	storageAccess: z.array(storageAccessItemSchema).optional(),
 });
 
-type StorageAccessInput = {
- id?: string;
- storageNodeId: string;
- pathPrefix?: string;
- canRead?: boolean;
- canWrite?: boolean;
- canDelete?: boolean;
- quotaBytes?: string | number | null;
- maxFileBytes?: string | number | null;
-};
 
 function normalizePathPrefix(value: unknown) {
   return String(value ?? "")

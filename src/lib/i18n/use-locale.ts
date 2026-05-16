@@ -10,7 +10,7 @@ const STORAGE_KEY = "vps-locale";
 
 interface I18nContextValue {
 	locale: Locale;
-	setLocale: (l: Locale) => void;
+	setLocale: (locale: Locale) => void;
 	t: (key: string) => string;
 	translations: Record<string, string>;
 }
@@ -18,7 +18,7 @@ interface I18nContextValue {
 const I18nContext = createContext<I18nContextValue>({
 	locale: "zh",
 	setLocale: () => {},
-	t: (k) => k,
+	t: (key) => key,
 	translations: {},
 });
 

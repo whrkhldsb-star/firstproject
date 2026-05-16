@@ -14,8 +14,6 @@ import { randomBytes } from "node:crypto";
 const CSRF_TOKEN_LENGTH = 32;
 const CSRF_COOKIE_NAME = "csrf_token";
 const CSRF_HEADER_NAME = "x-csrf-token";
-const CSRF_FORM_FIELD = "csrf_token";
-
 /** Generate a new CSRF token */
 export function generateCsrfToken(): string {
 	return randomBytes(CSRF_TOKEN_LENGTH).toString("hex");

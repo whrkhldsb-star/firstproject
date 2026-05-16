@@ -4,7 +4,7 @@ import { requireApiSession } from "@/lib/auth/require-api-session";
 import { sendChatRequest, createMessage, getConversationById } from "@/lib/ai/service";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { prisma } from "@/lib/db";
-import { getOpenAIToolsFormat, getAnthropicToolsFormat } from "@/lib/ai/hosted-tools";
+import { getOpenAIToolsFormat } from "@/lib/ai/hosted-tools";
 import { parseToolCall, createHostedAction, executeSafeAction } from "@/lib/ai/hosted-service";
 
 export const dynamic = "force-dynamic";
@@ -180,9 +180,7 @@ export async function POST(request: Request) {
  // 最多 5 轮 tool calling 循环，防止无限循环
  const MAX_TOOL_ROUNDS = 5;
 		const currentMessages = [...historyMessages];
- let finalContent = "";
- let finalReasoning = "";
- let totalInputTokens = 0;
+	let totalInputTokens = 0;
  let totalOutputTokens = 0;
  const allToolResults: Array<{ toolCallId: string; toolName: string; result: unknown; needsApproval: boolean; actionId?: string }> = [];
 
@@ -317,11 +315,9 @@ export async function POST(request: Request) {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "error", error: errMsg })}\n\n`));
      }
 
-     // Save assistant message
-     const latencyMs = Date.now() - startTime;
-     finalContent = fullContent || "";
-     finalReasoning = fullReasoning || "";
-     totalInputTokens = inputTokens;
+// Save assistant message
+    const latencyMs = Date.now() - startTime;
+    totalInputTokens = inputTokens;
      totalOutputTokens = outputTokens;
 
      const assistantMsg = await prisma.aiMessage.create({

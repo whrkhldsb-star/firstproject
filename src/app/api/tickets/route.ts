@@ -24,7 +24,7 @@ const ticketPatchSchema = z.object({
 });
 
 export const dynamic = "force-dynamic";
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "ticket:manage")) return NextResponse.json({ error: "缺少权限" }, { status: 403 });

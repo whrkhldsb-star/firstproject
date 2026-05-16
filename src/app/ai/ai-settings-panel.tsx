@@ -1,7 +1,6 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import type { ModelInfo, ModelCapabilities } from "./ai-types";
+import type { ModelInfo } from "./ai-types";
 
 interface SettingsFormState {
  model: string;

@@ -11,13 +11,11 @@ type ArchiveEntry = {
 };
 
 export function ArchivePreviewClient({
-	href,
 	name,
 	nodeId,
 	relativePath,
 	driver,
 }: {
-	href: string;
 	name: string;
 	nodeId: string;
 	relativePath: string;

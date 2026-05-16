@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { csrfFetch } from "@/lib/auth/csrf-client";
 
 type Props = {
 	settings: Record<string, string>;

@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 			});
 		} else if (ext === ".gz" && !name.endsWith(".tar.gz")) {
 			const outputName = name.replace(/\.gz$/, "");
-			const outputPath = path.join(targetDir, outputName);
+			const _outputPath = path.join(targetDir, outputName);
 			await execFileAsync("gunzip", ["-k", "-f", fullPath], {
 				maxBuffer: 10 * 1024 * 1024,
 				timeout: 60000,

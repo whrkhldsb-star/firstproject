@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
 	const authed = await requireApiPermission("deploy:export");
 	if (authed instanceof NextResponse) return authed;
-	const { session } = authed;
+	const { session: _session } = authed;
 
 	const domain = new URL(request.url).searchParams.get("domain") ?? undefined;
 	return NextResponse.json(buildPortableDeploymentPackage({ domain }));

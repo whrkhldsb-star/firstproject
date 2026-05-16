@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createLogger } from "@/lib/logging";
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
-import { startService, stopService, uninstallService, syncServiceStatus, getQuickService } from "@/lib/quick-service/service";
+import { startService, stopService, uninstallService, syncServiceStatus } from "@/lib/quick-service/service";
 import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:quick-services:slug");

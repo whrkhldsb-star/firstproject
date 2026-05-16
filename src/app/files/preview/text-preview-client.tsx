@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import DOMPurify from "dompurify";
-import { csrfFetch } from "@/lib/auth/csrf-client";
 
 /** Sanitize syntax-highlighted HTML — allow span tags for color classes */
 function sanitizeHighlightHtml(html: string): string {
@@ -45,7 +44,6 @@ function getLangFromName(name?: string): string {
 /* Simple token-based syntax highlighting using regex.
    Strategy: extract comments/strings first as placeholders, highlight keywords, then restore. */
 
-type TokenRange = { start: number; end: number; type: string };
 
 function highlightLine(line: string, lang: string): string {
 	if (lang === "text" || lang === "log") return escapeHtml(line);

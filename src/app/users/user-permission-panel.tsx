@@ -127,8 +127,8 @@ csrfFetch(`/api/users/permissions?userId=${encodeURIComponent(userId)}`)
     }));
 
     try {
-      const data = await csrfFetch("/api/users/permissions", {
-        method: "PATCH",
+const _data = await csrfFetch("/api/users/permissions", {
+		method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, roleKeys, permissionKeys, storageAccess: normalizedGrants }),
       });

@@ -4,7 +4,7 @@ import { useState, useCallback, useTransition, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { OFFICE_MIME_SET, ARCHIVE_MIME_SET, EXTENDED_TEXT_MIME_SET, CSV_MIME_SET, MARKDOWN_MIME_SET, IMAGE_MIME_SET, AUDIO_MIME_SET, VIDEO_MIME_SET, isDocumentMime, isMediaMime } from "@/lib/storage/mime-constants";
+import { OFFICE_MIME_SET, ARCHIVE_MIME_SET, EXTENDED_TEXT_MIME_SET, CSV_MIME_SET, MARKDOWN_MIME_SET } from "@/lib/storage/mime-constants";
 import { deleteFileEntryAction } from "../storage/actions";
 import { moveFileAction } from "./move-file-action";
 import { DeleteConfirmButton } from "./delete-confirm-button";

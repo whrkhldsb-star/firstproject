@@ -13,16 +13,8 @@ const snippetPostSchema = z.object({
   isPublic: z.boolean().optional(),
 });
 
-const snippetPatchSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().optional(),
-  content: z.string().optional(),
-  language: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  isPublic: z.boolean().optional(),
-});
 
-export const dynamic = "force-dynamic";
+export const dynamic= "force-dynamic";
 export async function GET(request: Request) {
 	try {
 		const session = await requireSession();

@@ -244,7 +244,7 @@ function CreateTemplateForm({ onClose }: { onClose: () => void }) {
 		setSubmitting(true);
 		setError(null);
 		try {
-			const data = await csrfFetch("/api/command-templates", {
+			const _data = await csrfFetch("/api/command-templates", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({

@@ -140,7 +140,7 @@ export function DownloadsClient({ servers, canManage }: { servers: ServerOption[
 				maxSpeedKb: form.maxSpeedKb ? parseInt(form.maxSpeedKb, 10) : undefined,
 				isBatch, batchUrls,
 			};
-			const data = await csrfFetch("/api/downloads", {
+			const _data = await csrfFetch("/api/downloads", {
 				method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
 			});
 			setMessage({ type: "success", text: isBatch ? `批量下载已创建 (${batchUrls?.length ?? 0} 个链接)` : "下载任务已创建" });

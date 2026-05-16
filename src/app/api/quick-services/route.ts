@@ -13,8 +13,6 @@ import {
 	listQuickServices,
 	installService,
 	checkPort,
-	allocatePort,
-	isPortAvailableSync,
 	getUsedPorts,
 } from "@/lib/quick-service/service";
 import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";

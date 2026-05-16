@@ -50,7 +50,7 @@ export async function POST(request: Request) {
 	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
 	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
-		const session = await requireSession();
+		await requireSession();
 		const rawBody = await request.json();
 		const parsed = postSchema.safeParse(rawBody);
 		if (!parsed.success) {

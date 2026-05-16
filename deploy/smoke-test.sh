@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Post-deploy smoke test — run after every code/config change.
 # Verifies all services are up and the site is fully accessible.
-# Usage: bash deploy/smoke-test.sh [EXTERNAL_IP_OR_DOMAIN]
+# Usage: bash deploy/smoke-test.sh [EXTERNAL_IP_OR_DOMAIN] [APP_SLUG]
 set -euo pipefail
 
 TARGET="${1:-}"
+APP_SLUG="${2:-whrkhldsb}"
+
 [ -z "${TARGET}" ] && TARGET="$(ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)" || true
 [ -z "${TARGET}" ] && TARGET="localhost"
+
+# Allow APP_DIR override via env (defaults to /opt/${APP_SLUG} for standard installs)
+SMOKE_APP_DIR="${APP_DIR:-/opt/${APP_SLUG}}"
 
 PASS=0
 FAIL=0
@@ -33,10 +38,10 @@ echo "════════════════════════�
 echo ""
 
 echo "── 1. System Services ──"
-check "whrkhldsb-next service"    "systemctl is-active whrkhldsb-next" 0
-check "whrkhldsb-ssh-ws service"  "systemctl is-active whrkhldsb-ssh-ws" 0
-check "Apache service"            "systemctl is-active apache2" 0
-check "PostgreSQL service"        "systemctl is-active postgresql" 0
+check "${APP_SLUG}-next service"   "systemctl is-active ${APP_SLUG}-next" 0
+check "${APP_SLUG}-ssh-ws service" "systemctl is-active ${APP_SLUG}-ssh-ws" 0
+check "Apache service"             "systemctl is-active apache2" 0
+check "PostgreSQL service"         "systemctl is-active postgresql" 0
 
 echo ""
 echo "── 2. Port Binding ──"
@@ -68,10 +73,10 @@ check "Security headers present"   "curl -sS -D- http://${TARGET}/login | grep X
 
 echo ""
 echo "── 6. SSH-WS Proxy ──"
-check "SSH-WS service running"     "systemctl is-active whrkhldsb-ssh-ws" 0
+check "SSH-WS service running"     "systemctl is-active ${APP_SLUG}-ssh-ws" 0
 check "SSH-WS on 127.0.0.1:3001"   "ss -tlnp | grep '127.0.0.1:3001'" 0
-check "SSH_WS_SECRET configured"   "grep -q 'SSH_WS_SECRET=..' /root/firstproject/.env.local" 0
-check "SSH_WS_ALLOWED_ORIGINS has target" "grep SSH_WS_ALLOWED_ORIGINS /root/firstproject/.env.local | grep -q \"${TARGET}\"" 0
+check "SSH_WS_SECRET configured"   "grep -q 'SSH_WS_SECRET=..' \"${SMOKE_APP_DIR}/.env.local\"" 0
+check "SSH_WS_ALLOWED_ORIGINS has target" "grep SSH_WS_ALLOWED_ORIGINS \"${SMOKE_APP_DIR}/.env.local\" | grep -q \"${TARGET}\"" 0
 
 echo ""
 echo "═══════════════════════════════════════════════"

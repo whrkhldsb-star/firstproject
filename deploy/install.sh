@@ -293,7 +293,7 @@ auto_generate_env_secrets() {
  secret="$(openssl rand -base64 48)"
  local escaped
  escaped="$(shell_escape_sed_replacement "${secret}")"
- sed -i "s#^AUTH_SESSION_SECRET=.*#AUTH_SESSION_SECRET=${escaped}#" "${ENV_FILE}"
+ sed -i "s|^AUTH_SESSION_SECRET=.*#AUTH_SESSION_SECRET=${escaped}#|g" "${ENV_FILE}"
  AUTH_SESSION_SECRET="${secret}"
  log "Auto-generated AUTH_SESSION_SECRET"
  changed=1
@@ -305,7 +305,7 @@ auto_generate_env_secrets() {
  admin_pw="$(openssl rand -base64 24)"
  local escaped_pw
  escaped_pw="$(shell_escape_sed_replacement "${admin_pw}")"
- sed -i "s#^ADMIN_INITIAL_PASSWORD=.*#ADMIN_INITIAL_PASSWORD=${escaped_pw}#" "${ENV_FILE}"
+ sed -i "s|^ADMIN_INITIAL_PASSWORD=.*#ADMIN_INITIAL_PASSWORD=${escaped_pw}#|g" "${ENV_FILE}"
  ADMIN_INITIAL_PASSWORD="${admin_pw}"
  warn "============================================================"
  warn " Auto-generated ADMIN_INITIAL_PASSWORD (save this!):"
@@ -319,57 +319,30 @@ auto_generate_env_secrets() {
  if [ -n "${DOMAIN:-}" ]; then
  local escaped
  escaped="$(shell_escape_sed_replacement "${DOMAIN}")"
- sed -i "s#^NEXT_PUBLIC_APP_PUBLIC_LABEL=.*#NEXT_PUBLIC_APP_PUBLIC_LABEL=${escaped}#" "${ENV_FILE}"
+ sed -i "s|^NEXT_PUBLIC_APP_PUBLIC_LABEL=.*#NEXT_PUBLIC_APP_PUBLIC_LABEL=${escaped}#|g" "${ENV_FILE}"
  log "Auto-set NEXT_PUBLIC_APP_PUBLIC_LABEL=${DOMAIN}"
  changed=1
  else
  # DOMAIN not set — clear the placeholder so validate_env won't reject it
- sed -i 's#^NEXT_PUBLIC_APP_PUBLIC_LABEL=.*#NEXT_PUBLIC_APP_PUBLIC_LABEL=#' "${ENV_FILE}"
+ sed -i 's|^NEXT_PUBLIC_APP_PUBLIC_LABEL=.*#NEXT_PUBLIC_APP_PUBLIC_LABEL=#|g' "${ENV_FILE}"
  NEXT_PUBLIC_APP_PUBLIC_LABEL=""
  warn "DOMAIN not set; cleared NEXT_PUBLIC_APP_PUBLIC_LABEL placeholder"
  fi
  fi
 
-	# ── SSH_WS_ALLOWED_ORIGINS ───────────────────────────────────────
-	if is_placeholder_value "${SSH_WS_ALLOWED_ORIGINS:-}" || [ -z "${SSH_WS_ALLOWED_ORIGINS:-}" ]; then
-		if [ -n "${DOMAIN:-}" ]; then
-			local origin="https://${DOMAIN}"
-			local escaped
-			escaped="$(shell_escape_sed_replacement "${origin}")"
-			sed -i "s#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=${escaped}#" "${ENV_FILE}"
-			SSH_WS_ALLOWED_ORIGINS="${origin}"
-			log "Auto-set SSH_WS_ALLOWED_ORIGINS=${origin}"
-			changed=1
-		else
-			# No DOMAIN — auto-detect external IP for IP-only deploy
-			local ext_ip
-			ext_ip="$(ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)" || true
-			if [ -z "${ext_ip}" ]; then
-				ext_ip="$(curl -fsS --max-time 3 ifconfig.me 2>/dev/null)" || true
-			fi
-			if [ -n "${ext_ip}" ]; then
-				local origin="http://${ext_ip}:${NEXT_PORT}"
-				local escaped
-				escaped="$(shell_escape_sed_replacement "${origin}")"
-				sed -i "s#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=${escaped}#" "${ENV_FILE}"
-				SSH_WS_ALLOWED_ORIGINS="${origin}"
-				log "Auto-set SSH_WS_ALLOWED_ORIGINS=${origin} (IP-only mode)"
-				changed=1
-			else
-				# Cannot detect IP — clear placeholder so validate_env won't reject it
-				sed -i 's#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=#' "${ENV_FILE}"
-				SSH_WS_ALLOWED_ORIGINS=""
-				warn "DOMAIN not set and cannot detect external IP; cleared SSH_WS_ALLOWED_ORIGINS. Set it manually."
-			fi
-		fi
-	fi
+	# The SSH_WS_ALLOWED_ORIGINS auto-set logic lives in generate_or_validate_env()
+# (lines 419-444) — it covers both domain and IP-only modes with localhost fallbacks.
+# This block below is removed to avoid double-execution with wrong :NEXT_PORT suffix.
+#
+# ── SSH_WS_ALLOWED_ORIGINS ───────────────────────────────────────
+# (consolidated into generate_or_validate_env below)
 
  # ── AUTH_SESSION_COOKIE_NAME, ISSUER, AUDIENCE ───────────────────
  if is_placeholder_value "${AUTH_SESSION_COOKIE_NAME:-}" || [ -z "${AUTH_SESSION_COOKIE_NAME:-}" ]; then
  local cookie_name="${APP_SLUG}-session"
  local escaped
  escaped="$(shell_escape_sed_replacement "${cookie_name}")"
- sed -i "s#^AUTH_SESSION_COOKIE_NAME=.*#AUTH_SESSION_COOKIE_NAME=${escaped}#" "${ENV_FILE}"
+ sed -i "s|^AUTH_SESSION_COOKIE_NAME=.*#AUTH_SESSION_COOKIE_NAME=${escaped}#|g" "${ENV_FILE}"
  log "Auto-set AUTH_SESSION_COOKIE_NAME=${cookie_name}"
  changed=1
  fi
@@ -378,7 +351,7 @@ auto_generate_env_secrets() {
  local issuer="${APP_SLUG}"
  local escaped
  escaped="$(shell_escape_sed_replacement "${issuer}")"
- sed -i "s#^AUTH_SESSION_ISSUER=.*#AUTH_SESSION_ISSUER=${escaped}#" "${ENV_FILE}"
+ sed -i "s|^AUTH_SESSION_ISSUER=.*#AUTH_SESSION_ISSUER=${escaped}#|g" "${ENV_FILE}"
  log "Auto-set AUTH_SESSION_ISSUER=${issuer}"
  changed=1
  fi
@@ -387,7 +360,7 @@ auto_generate_env_secrets() {
  local audience="${APP_SLUG}-console"
  local escaped
  escaped="$(shell_escape_sed_replacement "${audience}")"
- sed -i "s#^AUTH_SESSION_AUDIENCE=.*#AUTH_SESSION_AUDIENCE=${escaped}#" "${ENV_FILE}"
+ sed -i "s|^AUTH_SESSION_AUDIENCE=.*#AUTH_SESSION_AUDIENCE=${escaped}#|g" "${ENV_FILE}"
  log "Auto-set AUTH_SESSION_AUDIENCE=${audience}"
  changed=1
  fi
@@ -398,7 +371,7 @@ auto_generate_env_secrets() {
  ws_secret="$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 48)"
  local escaped_ws
  escaped_ws="$(shell_escape_sed_replacement "${ws_secret}")"
- sed -i "s#^SSH_WS_SECRET=.*#SSH_WS_SECRET=${escaped_ws}#" "${ENV_FILE}"
+ sed -i "s|^SSH_WS_SECRET=.*#SSH_WS_SECRET=${escaped_ws}#|g" "${ENV_FILE}"
  SSH_WS_SECRET="${ws_secret}"
  log "Auto-generated SSH_WS_SECRET"
  changed=1
@@ -410,7 +383,7 @@ auto_generate_env_secrets() {
  enc_key="$(openssl rand -base64 48 | tr -dc 'a-zA-Z0-9' | head -c 48)"
  local escaped_enc
  escaped_enc="$(shell_escape_sed_replacement "${enc_key}")"
- sed -i "s#^ENCRYPTION_KEY=.*#ENCRYPTION_KEY=${escaped_enc}#" "${ENV_FILE}"
+ sed -i "s|^ENCRYPTION_KEY=.*#ENCRYPTION_KEY=${escaped_enc}#|g" "${ENV_FILE}"
  ENCRYPTION_KEY="${enc_key}"
  log "Auto-generated ENCRYPTION_KEY"
  changed=1
@@ -437,7 +410,7 @@ auto_generate_env_secrets() {
  ws_origins="http://localhost:3000,http://127.0.0.1:3000${ws_origins:+,}${ws_origins}"
  local escaped_origins
  escaped_origins="$(shell_escape_sed_replacement "${ws_origins}")"
- sed -i "s#^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=${escaped_origins}#" "${ENV_FILE}"
+ sed -i "s|^SSH_WS_ALLOWED_ORIGINS=.*#SSH_WS_ALLOWED_ORIGINS=${escaped_origins}#|g" "${ENV_FILE}"
  SSH_WS_ALLOWED_ORIGINS="${ws_origins}"
  log "Auto-set SSH_WS_ALLOWED_ORIGINS=${ws_origins}"
  changed=1
@@ -494,7 +467,7 @@ setup_postgres() {
 			# Save generated password to .env.local
 			local escaped_pg_pw
 			escaped_pg_pw="$(shell_escape_sed_replacement "${PG_DB_PASSWORD}")"
-			sed -i "s#^PG_DB_PASSWORD=.*#PG_DB_PASSWORD=${escaped_pg_pw}#" "${ENV_FILE}"
+			sed -i "s|^PG_DB_PASSWORD=.*#PG_DB_PASSWORD=${escaped_pg_pw}#|g" "${ENV_FILE}"
 			warn "Generated random PostgreSQL password for ${PG_DB_USER}; saved to ${ENV_FILE}"
 		fi
 		log "Creating PostgreSQL user ${PG_DB_USER}"
@@ -505,7 +478,7 @@ setup_postgres() {
 			PG_DB_PASSWORD="$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 32)"
 			local escaped_pg_pw
 			escaped_pg_pw="$(shell_escape_sed_replacement "${PG_DB_PASSWORD}")"
-			sed -i "s#^PG_DB_PASSWORD=.*#PG_DB_PASSWORD=${escaped_pg_pw}#" "${ENV_FILE}"
+			sed -i "s|^PG_DB_PASSWORD=.*#PG_DB_PASSWORD=${escaped_pg_pw}#|g" "${ENV_FILE}"
 			warn "Generated random PostgreSQL password for existing user ${PG_DB_USER}; saved to ${ENV_FILE}"
 		fi
 		sudo -u postgres psql -c "ALTER USER ${PG_DB_USER} WITH ENCRYPTED PASSWORD '${PG_DB_PASSWORD}';" 2>/dev/null || true
@@ -542,7 +515,7 @@ setup_postgres() {
 		log "Updating DATABASE_URL in ${ENV_FILE} (syncing with PG_DB_PASSWORD)"
 		local escaped_url
 		escaped_url="$(shell_escape_sed_replacement "${generated_url}")"
-		sed -i "s#^DATABASE_URL=.*#DATABASE_URL=${escaped_url}#" "${ENV_FILE}"
+		sed -i "s|^DATABASE_URL=.*#DATABASE_URL=${escaped_url}#|g" "${ENV_FILE}"
 	fi
 }
 
@@ -600,16 +573,16 @@ install_systemd() {
 		mkdir -p "$(dirname "${dst}")"
 		# Remove immutable flag if present (from hardening or previous deployment)
 		chattr -i "${dst}" 2>/dev/null || true
-		sed \
-			-e "s#{{SITE_NAME}}#${SITE_NAME}#g" \
-			-e "s#{{APP_DIR}}#${APP_DIR}#g" \
-			-e "s#{{ENV_FILE}}#${ENV_FILE}#g" \
-			-e "s#{{SYSTEMD_PATH}}#${systemd_path}#g" \
-			-e "s#{{NPM_BIN}}#${npm_bin}#g" \
-			-e "s#{{NPX_BIN}}#${npx_bin}#g" \
-			-e "s#{{APP_USER}}#${APP_USER}#g" \
-			-e "s#{{APP_SLUG}}#${APP_SLUG}#g" \
-			-e "s#{{SERVICE_PREFIX}}#${SERVICE_PREFIX}#g" \
+sed \
+			-e "s|{{SITE_NAME}}|${SITE_NAME}|g" \
+			-e "s|{{APP_DIR}}|${APP_DIR}|g" \
+			-e "s|{{ENV_FILE}}|${ENV_FILE}|g" \
+			-e "s|{{SYSTEMD_PATH}}|${systemd_path}|g" \
+			-e "s|{{NPM_BIN}}|${npm_bin}|g" \
+			-e "s|{{NPX_BIN}}|${npx_bin}|g" \
+			-e "s|{{APP_USER}}|${APP_USER}|g" \
+			-e "s|{{APP_SLUG}}|${APP_SLUG}|g" \
+			-e "s|{{SERVICE_PREFIX}}|${SERVICE_PREFIX}|g" \
 			"${src}" > "${dst}"
 		chmod 0644 "${dst}"
 	done
@@ -625,11 +598,11 @@ install_caddy() {
  escaped_domain="$(shell_escape_sed_replacement "${DOMAIN}")"
  escaped_next="$(shell_escape_sed_replacement "${NEXT_HOST}:${NEXT_PORT}")"
  escaped_ssh_ws="$(shell_escape_sed_replacement "${SSH_WS_HOST}:${SSH_WS_PORT}")"
- sed -i \
- -e "s#your-domain.example#${escaped_domain}#g" \
- -e "s#127.0.0.1:3000#${escaped_next}#g" \
- -e "s#127.0.0.1:3001#${escaped_ssh_ws}#g" \
- "${DESTDIR}/etc/caddy/Caddyfile"
+sed -i \
+  -e "s|your-domain.example|${escaped_domain}|g" \
+  -e "s|127.0.0.1:3000|${escaped_next}|g" \
+  -e "s|127.0.0.1:3001|${escaped_ssh_ws}|g" \
+  "${DESTDIR}/etc/caddy/Caddyfile"
  caddy validate --config "${DESTDIR}/etc/caddy/Caddyfile" --adapter caddyfile
  systemctl enable caddy
  # Ensure Apache/Nginx is not stealing port 80/443 from Caddy.
@@ -676,11 +649,11 @@ install_apache() {
  escaped_next_host_port="$(shell_escape_sed_replacement "${NEXT_HOST}:${NEXT_PORT}")"
  escaped_ssh_ws_host_port="$(shell_escape_sed_replacement "${SSH_WS_HOST}:${SSH_WS_PORT}")"
 
- sed \
- -e "s#{{SERVER_NAME}}#${escaped_server_name}#g" \
- -e "s#{{NEXT_HOST}}:{{NEXT_PORT}}#${escaped_next_host_port}#g" \
- -e "s#{{SSH_WS_HOST}}:{{SSH_WS_PORT}}#${escaped_ssh_ws_host_port}#g" \
- "${apache_src}" > "${apache_dst}"
+sed \
+  -e "s|{{SERVER_NAME}}|${escaped_server_name}|g" \
+  -e "s|{{NEXT_HOST}}:{{NEXT_PORT}}|${escaped_next_host_port}|g" \
+  -e "s|{{SSH_WS_HOST}}:{{SSH_WS_PORT}}|${escaped_ssh_ws_host_port}|g" \
+  "${apache_src}" > "${apache_dst}"
  chmod 0644 "${apache_dst}"
 
  # Disable default site, enable our proxy site
