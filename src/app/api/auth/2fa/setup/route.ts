@@ -9,6 +9,7 @@ import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { generateSecret, verify as verifyTOTP } from "otplib";
 import { createLogger } from "@/lib/logging";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:2fa:setup");
 
@@ -20,7 +21,9 @@ function buildOtpauthUrl(secret: string, username: string): string {
 	return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await getApiSession();
 		if (!session) {
@@ -47,6 +50,8 @@ export async function POST() {
 }
 
 export async function PUT(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await getApiSession();
 		if (!session) {

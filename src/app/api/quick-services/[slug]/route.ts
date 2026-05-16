@@ -1,18 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createLogger } from "@/lib/logging";
+import { sessionHasPermission } from "@/lib/auth/authorization";
+import { requireSession } from "@/lib/auth/require-session";
+import { startService, stopService, uninstallService, syncServiceStatus, getQuickService } from "@/lib/quick-service/service";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:quick-services:slug");
 
 const serviceActionSchema = z.object({ action: z.enum(["start", "stop", "sync"]) });
 
-import { sessionHasPermission } from "@/lib/auth/authorization";
-import { requireSession } from "@/lib/auth/require-session";
-import { startService, stopService, uninstallService, syncServiceStatus, getQuickService } from "@/lib/quick-service/service";
-
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ slug: string }> }) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "user:manage"))
@@ -45,6 +47,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ sl
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ slug: string }> }) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "user:manage"))

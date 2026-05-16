@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/require-session";
 import { listUserNotifications, getUnreadCount, markAsRead, markAllAsRead, deleteNotification } from "@/lib/notification/service";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,8 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		const body = await request.json();
@@ -44,6 +47,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		const rawBody = await request.json();
@@ -59,6 +64,8 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		const { searchParams } = new URL(request.url);

@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/auth/require-session";
 
 import { prisma } from "@/lib/db";
 import { normalizeRemoteTargetPath } from "@/lib/storage/remote-path";
+import { withRateLimit, rateLimitResponse, UPLOAD_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,8 @@ const directAccessSchema = z.object({ nodeId: z.string().min(1), relativePath: z
  */
 
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, UPLOAD_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const session = await requireSession();
 	if (!sessionHasPermission(session, "storage:read")) {
 		return NextResponse.json({ error: "无权限" }, { status: 403 });
@@ -57,11 +60,18 @@ export async function POST(request: Request) {
 	);
 }
 
-export async function DELETE() {
-	const session = await requireSession();
-	if (!sessionHasPermission(session, "storage:read")) {
-		return NextResponse.json({ error: "无权限" }, { status: 403 });
-	}
+export async function DELETE(request: Request) {
+	const rl = withRateLimit(request, UPLOAD_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
+	try {
+		const session = await requireSession();
+		if (!sessionHasPermission(session, "storage:read")) {
+			return NextResponse.json({ error: "无权限" }, { status: 403 });
+		}
 
-	return NextResponse.json({ stopped: true, mode: "managed-download" });
+		return NextResponse.json({ stopped: true, mode: "managed-download" });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "操作失败";
+		return NextResponse.json({ error: message }, { status: 500 });
+	}
 }

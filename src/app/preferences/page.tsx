@@ -49,6 +49,31 @@ const refreshOptions = [
 	{ label: "60秒", value: 60 },
 ];
 
+/** Section card — extracted to module top to avoid re-creation on every render */
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+	return (
+		<div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5">
+			<h3 className="text-xs font-medium text-slate-400 mb-4">{title}</h3>
+			<div className="space-y-4">{children}</div>
+		</div>
+	);
+}
+
+/** Toggle switch — extracted to module top to avoid re-creation on every render */
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+	return (
+		<div className="flex items-center justify-between">
+			<span className="text-sm text-slate-300">{label}</span>
+			<button
+				onClick={() => onChange(!checked)}
+				className={`relative w-10 h-5 rounded-full transition ${checked ? "bg-cyan-500" : "bg-slate-700"}`}
+			>
+				<span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition ${checked ? "translate-x-5" : ""}`} />
+			</button>
+		</div>
+	);
+}
+
 export default function PreferencesPage() {
 	const [prefs, setPrefs] = useState<Preferences>(defaultPrefs);
 	const [saved, setSaved] = useState(false);
@@ -95,25 +120,6 @@ export default function PreferencesPage() {
 	};
 
 	if (loading) return <PageShell><div className="text-sm text-slate-500">加载中...</div></PageShell>;
-
-	const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-		<div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5">
-			<h3 className="text-xs font-medium text-slate-400 mb-4">{title}</h3>
-			<div className="space-y-4">{children}</div>
-		</div>
-	);
-
-	const Toggle = ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) => (
-		<div className="flex items-center justify-between">
-			<span className="text-sm text-slate-300">{label}</span>
-			<button
-				onClick={() => onChange(!checked)}
-				className={`relative w-10 h-5 rounded-full transition ${checked ? "bg-cyan-500" : "bg-slate-700"}`}
-			>
-				<span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition ${checked ? "translate-x-5" : ""}`} />
-			</button>
-		</div>
-	);
 
 	return (
 		<PageShell>

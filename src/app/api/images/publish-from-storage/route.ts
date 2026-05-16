@@ -13,6 +13,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { createLogger } from "@/lib/logging";
 import { UPLOAD_DIR, IMAGE_EXTENSIONS, mimeTypeFromExt } from "@/lib/image-bed/constants";
+import { withRateLimit, rateLimitResponse, IMAGE_UPLOAD_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:images:publish-from-storage");
 
@@ -21,6 +22,8 @@ const publishSchema = z.object({ storageNodeId: z.string().min(1), relativePath:
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, IMAGE_UPLOAD_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await getApiSession();
 		if (!session) {

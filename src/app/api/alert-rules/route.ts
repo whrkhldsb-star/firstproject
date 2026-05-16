@@ -6,6 +6,7 @@ import { listAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, togg
 import { auditUserAction } from "@/lib/audit/service";
 import { evaluateAlerts } from "@/lib/health/service";
 import { validateWebhookUrlSyntax } from "@/lib/security/webhook-url";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const { session, response } = await requireAlertSession();
 	if (response) return response;
 	try {
@@ -107,6 +110,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const { session, response } = await requireAlertSession();
 	if (response) return response;
 	try {
@@ -127,6 +132,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const { session, response } = await requireAlertSession();
 	if (response) return response;
 	try {
@@ -142,7 +149,9 @@ export async function DELETE(request: Request) {
 	}
 }
 
-export async function PUT() {
+export async function PUT(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const { session, response } = await requireAlertSession();
 	if (response) return response;
 	try {

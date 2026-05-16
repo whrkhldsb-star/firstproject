@@ -7,6 +7,7 @@ import { ALL_PERMISSIONS, type Permission } from "@/lib/auth/rbac";
 import { auditUserAction } from "@/lib/audit/service";
 import { prisma } from "@/lib/db";
 import { getStorageAccessUsage, parseNullableBigIntInput } from "@/lib/storage/access-control";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -141,98 +142,105 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const session = await requireSession();
-  if (!sessionHasPermission(session, "user:manage")) {
-    return NextResponse.json({ error: "缺少权限" }, { status: 403 });
-  }
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
+  try {
+    const session = await requireSession();
+    if (!sessionHasPermission(session, "user:manage")) {
+      return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+    }
 
- const parsed = patchPermissionsSchema.safeParse(await request.json());
- if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
+   const parsed = patchPermissionsSchema.safeParse(await request.json());
+   if (!parsed.success) return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
 
- // Prevent self-modification of permissions (privilege escalation)
- if (parsed.data.userId === session.userId) {
- return NextResponse.json({ error: "不能修改自己的权限" }, { status: 403 });
- }
+   // Prevent self-modification of permissions (privilege escalation)
+   if (parsed.data.userId === session.userId) {
+   return NextResponse.json({ error: "不能修改自己的权限" }, { status: 403 });
+   }
 
-  const targetUser = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, username: true } });
-  if (!targetUser) {
-    return NextResponse.json({ error: "用户不存在" }, { status: 404 });
-  }
+    const targetUser = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, username: true } });
+    if (!targetUser) {
+      return NextResponse.json({ error: "用户不存在" }, { status: 404 });
+    }
 
-  const roleKeys = Array.isArray(parsed.data.roleKeys) ? Array.from(new Set(parsed.data.roleKeys.map(String).filter(Boolean))) : undefined;
-  const permissionKeys = Array.isArray(parsed.data.permissionKeys) ? Array.from(new Set(parsed.data.permissionKeys.map(String).filter(isPermissionKey))) : undefined;
-  const storageAccess = Array.isArray(parsed.data.storageAccess) ? parsed.data.storageAccess : undefined;
+    const roleKeys = Array.isArray(parsed.data.roleKeys) ? Array.from(new Set(parsed.data.roleKeys.map(String).filter(Boolean))) : undefined;
+    const permissionKeys = Array.isArray(parsed.data.permissionKeys) ? Array.from(new Set(parsed.data.permissionKeys.map(String).filter(isPermissionKey))) : undefined;
+    const storageAccess = Array.isArray(parsed.data.storageAccess) ? parsed.data.storageAccess : undefined;
 
-  await prisma.$transaction(async (tx) => {
-    if (roleKeys) {
-      const roles = await tx.role.findMany({ where: { key: { in: roleKeys } }, select: { id: true } });
-      await tx.userRole.deleteMany({ where: { userId: parsed.data.userId } });
-      if (roles.length > 0) {
-        await tx.userRole.createMany({
-          data: roles.map((role) => ({ userId: parsed.data.userId!, roleId: role.id })),
-          skipDuplicates: true,
+    await prisma.$transaction(async (tx) => {
+      if (roleKeys) {
+        const roles = await tx.role.findMany({ where: { key: { in: roleKeys } }, select: { id: true } });
+        await tx.userRole.deleteMany({ where: { userId: parsed.data.userId } });
+        if (roles.length > 0) {
+          await tx.userRole.createMany({
+            data: roles.map((role) => ({ userId: parsed.data.userId!, roleId: role.id })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      if (permissionKeys) {
+        const customRoleKey = `user:${parsed.data.userId}:custom`;
+        const customRole = await tx.role.upsert({
+          where: { key: customRoleKey },
+          update: { name: `${targetUser.username} 的自定义权限`, description: "用户权限配置页自动维护" },
+          create: { key: customRoleKey, name: `${targetUser.username} 的自定义权限`, description: "用户权限配置页自动维护" },
+        });
+        const permissionRows = await tx.permission.findMany({ where: { key: { in: permissionKeys } }, select: { id: true } });
+        await tx.rolePermission.deleteMany({ where: { roleId: customRole.id } });
+        if (permissionRows.length > 0) {
+          await tx.rolePermission.createMany({
+            data: permissionRows.map((permission) => ({ roleId: customRole.id, permissionId: permission.id })),
+            skipDuplicates: true,
+          });
+        }
+        await tx.userRole.upsert({
+          where: { userId_roleId: { userId: parsed.data.userId!, roleId: customRole.id } },
+          update: {},
+          create: { userId: parsed.data.userId!, roleId: customRole.id },
         });
       }
-    }
 
-    if (permissionKeys) {
-      const customRoleKey = `user:${parsed.data.userId}:custom`;
-      const customRole = await tx.role.upsert({
-        where: { key: customRoleKey },
-        update: { name: `${targetUser.username} 的自定义权限`, description: "用户权限配置页自动维护" },
-        create: { key: customRoleKey, name: `${targetUser.username} 的自定义权限`, description: "用户权限配置页自动维护" },
-      });
-      const permissionRows = await tx.permission.findMany({ where: { key: { in: permissionKeys } }, select: { id: true } });
-      await tx.rolePermission.deleteMany({ where: { roleId: customRole.id } });
-      if (permissionRows.length > 0) {
-        await tx.rolePermission.createMany({
-          data: permissionRows.map((permission) => ({ roleId: customRole.id, permissionId: permission.id })),
-          skipDuplicates: true,
+      if (storageAccess) {
+        await tx.userStorageAccess.deleteMany({ where: { userId: parsed.data.userId } });
+        const validNodeIds = new Set((await tx.storageNode.findMany({ select: { id: true } })).map((node) => node.id));
+        const rows = storageAccess
+          .map((grant) => ({
+            userId: parsed.data.userId!,
+            storageNodeId: String(grant.storageNodeId ?? ""),
+            pathPrefix: normalizePathPrefix(grant.pathPrefix),
+            canRead: grant.canRead ?? true,
+            canWrite: grant.canWrite ?? false,
+            canDelete: grant.canDelete ?? false,
+            quotaBytes: parseNullableBigIntInput(grant.quotaBytes),
+            maxFileBytes: parseNullableBigIntInput(grant.maxFileBytes),
+          }))
+          .filter((grant) => grant.storageNodeId && validNodeIds.has(grant.storageNodeId) && (grant.canRead || grant.canWrite || grant.canDelete));
+
+        const seen = new Set<string>();
+        const uniqueRows = rows.filter((grant) => {
+          const key = `${grant.storageNodeId}\0${grant.pathPrefix}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
         });
+
+        if (uniqueRows.length > 0) {
+          await tx.userStorageAccess.createMany({ data: uniqueRows, skipDuplicates: true });
+        }
       }
-      await tx.userRole.upsert({
-        where: { userId_roleId: { userId: parsed.data.userId!, roleId: customRole.id } },
-        update: {},
-        create: { userId: parsed.data.userId!, roleId: customRole.id },
-      });
-    }
+    });
 
-    if (storageAccess) {
-      await tx.userStorageAccess.deleteMany({ where: { userId: parsed.data.userId } });
-      const validNodeIds = new Set((await tx.storageNode.findMany({ select: { id: true } })).map((node) => node.id));
-      const rows = storageAccess
-        .map((grant) => ({
-          userId: parsed.data.userId!,
-          storageNodeId: String(grant.storageNodeId ?? ""),
-          pathPrefix: normalizePathPrefix(grant.pathPrefix),
-          canRead: grant.canRead ?? true,
-          canWrite: grant.canWrite ?? false,
-          canDelete: grant.canDelete ?? false,
-          quotaBytes: parseNullableBigIntInput(grant.quotaBytes),
-          maxFileBytes: parseNullableBigIntInput(grant.maxFileBytes),
-        }))
-        .filter((grant) => grant.storageNodeId && validNodeIds.has(grant.storageNodeId) && (grant.canRead || grant.canWrite || grant.canDelete));
+    auditUserAction(session.userId, "user.permission_update", {
+      targetUsername: targetUser.username,
+      roleKeys: roleKeys ?? null,
+      permissionKeys: permissionKeys ?? null,
+      storageAccessCount: storageAccess?.length ?? null,
+    }, "WARNING");
 
-      const seen = new Set<string>();
-      const uniqueRows = rows.filter((grant) => {
-        const key = `${grant.storageNodeId}\0${grant.pathPrefix}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      if (uniqueRows.length > 0) {
-        await tx.userStorageAccess.createMany({ data: uniqueRows, skipDuplicates: true });
-      }
-    }
-  });
-
-  auditUserAction(session.userId, "user.permission_update", {
-    targetUsername: targetUser.username,
-    roleKeys: roleKeys ?? null,
-    permissionKeys: permissionKeys ?? null,
-    storageAccessCount: storageAccess?.length ?? null,
-  }, "WARNING");
-
-  return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+  	const message = error instanceof Error ? error.message : "操作失败";
+  	return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

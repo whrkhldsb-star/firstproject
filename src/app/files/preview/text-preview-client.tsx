@@ -1,7 +1,17 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import DOMPurify from "dompurify";
 import { csrfFetch } from "@/lib/auth/csrf-client";
+
+/** Sanitize syntax-highlighted HTML — allow span tags for color classes */
+function sanitizeHighlightHtml(html: string): string {
+	return DOMPurify.sanitize(html, {
+		ALLOWED_TAGS: ["span", "br"],
+		ALLOWED_ATTR: ["class"],
+		ALLOW_DATA_ATTR: false,
+	});
+}
 
 type PreviewState = { loading: true } | { loading: false; content: string | null; error: string | null };
 
@@ -295,8 +305,9 @@ export function TextPreviewClient({ href, name }: { href: string; name?: string 
 				<pre className="font-mono text-slate-300">
 					<code>
 						{lines.map((line, i) => {
-							let html = highlightLine(line, lang);
-							html = highlightSearch(html);
+						let html = highlightLine(line, lang);
+						html = highlightSearch(html);
+						html = sanitizeHighlightHtml(html);
 							return (
 								<div
 									key={i}

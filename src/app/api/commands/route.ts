@@ -3,6 +3,7 @@ import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
 import { createCommandRequest, listCommandRequests } from "@/lib/command/service";
 import { createCommandSchema } from "@/lib/command/schema";
+import { withRateLimit, rateLimitResponse, COMMAND_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await requireSession();
-  if (!sessionHasPermission(session, "command:create")) return NextResponse.json({ error: "缺少权限" }, { status: 403 });
-  const json = await request.json().catch(() => null);
-  const parsed = createCommandSchema.safeParse({ ...json, requesterId: session.userId, submissionMode: json?.submissionMode ?? "user" });
-  if (!parsed.success) return NextResponse.json({ error: "请求参数无效", issues: parsed.error.flatten() }, { status: 400 });
-  const command = await createCommandRequest(parsed.data);
-  return NextResponse.json({ command }, { status: 201 });
+  const rl = withRateLimit(request, COMMAND_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
+  try {
+    const session = await requireSession();
+    if (!sessionHasPermission(session, "command:create")) return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+    const json = await request.json().catch(() => null);
+    const parsed = createCommandSchema.safeParse({ ...json, requesterId: session.userId, submissionMode: json?.submissionMode ?? "user" });
+    if (!parsed.success) return NextResponse.json({ error: "请求参数无效", issues: parsed.error.flatten() }, { status: 400 });
+    const command = await createCommandRequest(parsed.data);
+    return NextResponse.json({ command }, { status: 201 });
+  } catch (error) {
+  	const message = error instanceof Error ? error.message : "操作失败";
+  	return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

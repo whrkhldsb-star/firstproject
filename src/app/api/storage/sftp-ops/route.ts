@@ -14,6 +14,7 @@ import {
 } from "@/lib/ssh/client";
 import { normalizeRemoteTargetPath, toClientStorageError } from "@/lib/storage/remote-path";
 import { createLogger } from "@/lib/logging";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:storage:sftp-ops");
 
@@ -31,6 +32,8 @@ const postSchema = z.object({
 type SftpOpsBody = z.infer<typeof postSchema>;
 
 export async function POST(request: Request) {
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
   const session = await requireSession();
 
  let rawBody: unknown;
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
  return NextResponse.json({ error: "输入参数无效" }, { status: 400 });
  }
 
- let body: SftpOpsBody = rawBody as SftpOpsBody;
+	const body: SftpOpsBody = rawBody as SftpOpsBody;
 
  const { action, nodeId, path: remotePath } = body;
 

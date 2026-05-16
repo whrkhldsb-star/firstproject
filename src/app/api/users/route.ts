@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth/password";
 import { auditUserAction } from "@/lib/audit/service";
 import { createLogger } from "@/lib/logging";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:users");
 
@@ -69,6 +70,8 @@ take: 500,
 
 /** POST: Create a new user */
 export async function POST(request: Request) {
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
   const session = await requireSession();
 
   if (!sessionHasPermission(session, "user:manage")) {
@@ -136,6 +139,8 @@ export async function POST(request: Request) {
 
 /** PATCH: Update user (status, roles, password reset) */
 export async function PATCH(request: Request) {
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
   const session = await requireSession();
 
   if (!sessionHasPermission(session, "user:manage")) {

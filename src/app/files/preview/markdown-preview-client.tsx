@@ -1,7 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import DOMPurify from "dompurify";
 import { csrfFetch } from "@/lib/auth/csrf-client";
+
+/** Sanitize HTML to prevent XSS while preserving safe formatting elements */
+function sanitizeHtml(html: string): string {
+	return DOMPurify.sanitize(html, {
+		ALLOWED_TAGS: [
+			"h1", "h2", "h3", "h4", "h5", "h6", "p", "br", "hr",
+			"strong", "em", "code", "pre", "a",
+			"ul", "ol", "li", "blockquote",
+			"table", "thead", "tbody", "tr", "th", "td",
+		],
+		ALLOWED_ATTR: ["href", "target", "rel", "class", "style"],
+		ALLOW_DATA_ATTR: false,
+	});
+}
 
 type PreviewState = { loading: true } | { loading: false; content: string | null; error: string | null };
 
@@ -261,6 +276,8 @@ export function MarkdownPreviewClient({ href }: { href: string }) {
 		};
 	}, [href]);
 
+	const html = useMemo(() => sanitizeHtml(renderMarkdown((state as { content?: string }).content ?? "")), [state]);
+
 	if (state.loading) {
 		return (
 			<div className="flex items-center justify-center py-16 text-slate-400">
@@ -277,8 +294,6 @@ export function MarkdownPreviewClient({ href }: { href: string }) {
 			</div>
 		);
 	}
-
-	const html = renderMarkdown(state.content ?? "");
 
 	return (
 		<div className="overflow-auto rounded-2xl bg-slate-950 p-4">

@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth/require-session";
 import { z } from "zod";
 
 import { createDeploymentRunFromTemplate, listDeploymentRuns, listDeploymentTemplates } from "@/lib/deployment/service";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -36,14 +37,21 @@ async function readRequestBody(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await requireSession();
-  if (!sessionHasPermission(session, "deploy:run")) return NextResponse.json({ error: "缺少权限" }, { status: 403 });
-  const body = await readRequestBody(request);
-  const parsed = createDeploymentSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "部署参数无效" }, { status: 400 });
-  const deployment = await createDeploymentRunFromTemplate({ ...parsed.data, requesterId: session.userId });
-  if ((request.headers.get("accept") || "").includes("text/html")) {
-    return NextResponse.redirect(new URL("/deployments", request.url), { status: 303 });
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
+  try {
+    const session = await requireSession();
+    if (!sessionHasPermission(session, "deploy:run")) return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+    const body = await readRequestBody(request);
+    const parsed = createDeploymentSchema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "部署参数无效" }, { status: 400 });
+    const deployment = await createDeploymentRunFromTemplate({ ...parsed.data, requesterId: session.userId });
+    if ((request.headers.get("accept") || "").includes("text/html")) {
+      return NextResponse.redirect(new URL("/deployments", request.url), { status: 303 });
+    }
+    return NextResponse.json({ deployment }, { status: 201 });
+  } catch (error) {
+  	const message = error instanceof Error ? error.message : "操作失败";
+  	return NextResponse.json({ error: message }, { status: 500 });
   }
-  return NextResponse.json({ deployment }, { status: 201 });
 }

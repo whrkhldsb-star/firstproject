@@ -13,6 +13,7 @@ import { z } from "zod";
 import http from "node:http";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
 import { createLogger } from "@/lib/logging";
+import { withRateLimit, rateLimitResponse, COMMAND_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:docker:containers");
 
@@ -111,6 +112,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+	const rl = withRateLimit(req, COMMAND_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const session = await requireApiSession();
 	if (!isSessionPayload(session)) return session; // 401 response
 

@@ -9,6 +9,7 @@ import { z } from "zod";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { createLogger } from "@/lib/logging";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:preferences");
 
@@ -54,6 +55,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const session = await requireApiSession();
 	if (!isSessionPayload(session)) return session; // 401 response
 

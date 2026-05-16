@@ -11,6 +11,7 @@ import { unlink } from "node:fs/promises";
 import * as path from "node:path";
 import { createLogger } from "@/lib/logging";
 import { UPLOAD_DIR } from "@/lib/image-bed/constants";
+import { withRateLimit, rateLimitResponse, IMAGE_UPLOAD_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:images:batch");
 
@@ -19,6 +20,8 @@ const batchSchema = z.object({ action: z.enum(["delete", "moveAlbum", "togglePub
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, IMAGE_UPLOAD_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await getApiSession();
 		if (!session) {

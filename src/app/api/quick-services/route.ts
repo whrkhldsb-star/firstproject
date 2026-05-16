@@ -17,6 +17,7 @@ import {
 	isPortAvailableSync,
 	getUsedPorts,
 } from "@/lib/quick-service/service";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,8 @@ export async function GET() {
 
 /** POST /api/quick-services — install a service */
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "user:manage"))

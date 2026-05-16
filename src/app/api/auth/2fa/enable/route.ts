@@ -8,12 +8,15 @@ import { getApiSession } from "@/lib/auth/api-session";
 import { prisma } from "@/lib/db";
 import { verify as verifyTOTP } from "otplib";
 import { createLogger } from "@/lib/logging";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const logger = createLogger("api:2fa:enable");
 
 const enableSchema = z.object({ code: z.string().min(1), secret: z.string().min(1) });
 
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await getApiSession();
 		if (!session) {

@@ -10,6 +10,7 @@ import {
   revokeApiToken,
 } from "@/lib/api-token/service";
 import { auditUserAction } from "@/lib/audit/service";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
   const session = await requireSession();
   if (!sessionHasPermission(session, "api-token:manage")) {
     return NextResponse.json({ error: "缺少权限" }, { status: 403 });
@@ -96,17 +99,24 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const session = await requireSession();
-  if (!sessionHasPermission(session, "api-token:manage")) {
-    return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
+  try {
+    const session = await requireSession();
+    if (!sessionHasPermission(session, "api-token:manage")) {
+      return NextResponse.json({ error: "缺少权限" }, { status: 403 });
+    }
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "id 必填" }, { status: 400 });
+    const token = await revokeApiToken({ userId: session.userId, id });
+    auditUserAction(session.userId, "api_token.revoke", {
+      tokenId: token.id,
+      tokenPrefix: token.tokenPrefix,
+      tokenSuffix: token.tokenSuffix,
+    });
+    return NextResponse.json({ token });
+  } catch (error) {
+  	const message = error instanceof Error ? error.message : "操作失败";
+  	return NextResponse.json({ error: message }, { status: 500 });
   }
-  const id = new URL(request.url).searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id 必填" }, { status: 400 });
-  const token = await revokeApiToken({ userId: session.userId, id });
-  auditUserAction(session.userId, "api_token.revoke", {
-    tokenId: token.id,
-    tokenPrefix: token.tokenPrefix,
-    tokenSuffix: token.tokenSuffix,
-  });
-  return NextResponse.json({ token });
 }

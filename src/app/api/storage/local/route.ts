@@ -12,6 +12,7 @@ import { buildContentDisposition } from "@/lib/http/content-disposition";
 import { assertStorageAccess } from "@/lib/storage/access-control";
 import { logError } from "@/lib/logging";
 import { normalizeStorageRelativePath } from "@/lib/storage/path-utils";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 type UploadLike = {
  arrayBuffer(): Promise<ArrayBuffer>;
@@ -158,6 +159,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
   const session = await requireSession();
   if (!sessionHasPermission(session, "storage:write")) {
     return NextResponse.json({ error: "缺少权限" }, { status: 403 });

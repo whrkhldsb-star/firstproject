@@ -34,6 +34,7 @@ import {
  cleanupTemp,
  type DownloadServer,
 } from "@/lib/downloads/execution";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,8 @@ const postDownloadSchema = z.object({
 });
 
 export async function POST(request: Request) {
+ const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+ if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
  const session = await requireSession();
  if (!sessionHasPermission(session, "storage:write")) {
   return NextResponse.json({ error: "缺少权限" }, { status: 403 });
@@ -252,6 +255,8 @@ const patchDownloadSchema = z.object({
 });
 
 export async function PATCH(request: Request) {
+ const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+ if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
  const session = await requireSession();
  if (!sessionHasPermission(session, "storage:write")) {
   return NextResponse.json({ error: "缺少权限" }, { status: 403 });
@@ -343,6 +348,8 @@ export async function PATCH(request: Request) {
 /* ── DELETE: Cancel task ──────────────────────────────────── */
 
 export async function DELETE(request: Request) {
+ const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+ if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
  const session = await requireSession();
  if (!sessionHasPermission(session, "storage:write")) {
   return NextResponse.json({ error: "缺少权限" }, { status: 403 });

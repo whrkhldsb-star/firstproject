@@ -7,10 +7,13 @@ import { sessionHasPermission } from "@/lib/auth/authorization";
 import { prisma } from "@/lib/db";
 import { logError } from "@/lib/logging";
 import { UPLOAD_DIR } from "@/lib/image-bed/constants";
+import { withRateLimit, rateLimitResponse, IMAGE_UPLOAD_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+	const rl = withRateLimit(_request, IMAGE_UPLOAD_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		const { id } = await params;

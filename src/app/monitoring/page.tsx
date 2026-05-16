@@ -15,6 +15,26 @@ interface Stats {
 	timestamp: string;
 }
 
+/** Card wrapper — extracted to module top to avoid re-creation on every render */
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+	return (
+		<div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5">
+			<h3 className="text-xs font-medium text-slate-400 mb-3">{title}</h3>
+			{children}
+		</div>
+	);
+}
+
+/** Key-value row — extracted to module top to avoid re-creation on every render */
+function Row({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="flex items-center justify-between py-1.5">
+			<span className="text-xs text-slate-500">{label}</span>
+			<span className="text-xs text-white font-mono">{value}</span>
+		</div>
+	);
+}
+
 export default function MonitoringPage() {
 	const [stats, setStats] = useState<Stats | null>(null);
 	const [loading, setLoading] = useState(true);
@@ -37,20 +57,6 @@ export default function MonitoringPage() {
 
 	if (loading) return <PageShell><div className="text-sm text-slate-500">加载中...</div></PageShell>;
 	if (!stats) return <PageShell><div className="text-sm text-rose-400">无法获取监控数据</div></PageShell>;
-
-	const Card = ({ title, children }: { title: string; children: React.ReactNode }) => (
-		<div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-5">
-			<h3 className="text-xs font-medium text-slate-400 mb-3">{title}</h3>
-			{children}
-		</div>
-	);
-
-	const Row = ({ label, value }: { label: string; value: string }) => (
-		<div className="flex items-center justify-between py-1.5">
-			<span className="text-xs text-slate-500">{label}</span>
-			<span className="text-xs text-white font-mono">{value}</span>
-		</div>
-	);
 
 	return (
 		<PageShell>

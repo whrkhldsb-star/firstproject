@@ -7,6 +7,7 @@ const logger = createLogger("api:scheduled-tasks");
 import { sessionHasPermission } from "@/lib/auth/authorization";
 import { requireSession } from "@/lib/auth/require-session";
 import { createScheduledTask, listScheduledTasks, updateScheduledTask, deleteScheduledTask, toggleScheduledTask } from "@/lib/scheduled-task/service";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const scheduledTaskPostSchema = z.object({
   name: z.string().min(1),
@@ -63,6 +64,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "command:create")) {
@@ -88,6 +91,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "command:create")) {
@@ -111,6 +116,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "command:create")) {

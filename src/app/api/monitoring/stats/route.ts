@@ -7,7 +7,7 @@
  * zero injection risk, zero subprocess overhead.
  */
 import { NextResponse } from "next/server";
-import { readFileSync, statfsSync } from "node:fs";
+import { readFileSync, readdirSync, statfsSync } from "node:fs";
 import os from "os";
 import { requireApiSession, isSessionPayload } from "@/lib/auth/api-session";
 import { createLogger } from "@/lib/logging";
@@ -46,7 +46,7 @@ export async function GET() {
 		} catch { /* ok */ }
 
 		// Network stats — read /proc/net/dev directly
-		let netInfo: { iface: string; rx: string; tx: string }[] = [];
+		const netInfo: { iface: string; rx: string; tx: string }[] = [];
 		const netDev = readProc("/proc/net/dev");
 		if (netDev) {
 			for (const line of netDev.split("\n").slice(2)) {
@@ -113,7 +113,6 @@ function getCpuUsagePercent(): string {
 function getTopProcesses(): { pid: string; cpu: string; mem: string; cmd: string }[] {
 	const procs: { pid: number; memKb: number; cmd: string; utime: number; stime: number }[] = [];
 	try {
-		const { readdirSync } = require("node:fs");
 		const entries = readdirSync("/proc");
 		const clockTick = 100; // CLK_TCK on Linux, typically 100
 

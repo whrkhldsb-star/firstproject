@@ -12,6 +12,7 @@ import {
 	isValidSettingKey,
 } from "@/lib/settings/service";
 import { SettingKey, MASKED_VALUE } from "@/lib/settings/schema";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,8 @@ export async function GET() {
 /* ── PATCH ────────────────────────────────────────────────── */
 
 export async function PATCH(request: Request) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	try {
 		const session = await requireSession();
 		if (!sessionHasPermission(session, "user:manage")) {

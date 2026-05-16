@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,6 +20,8 @@ const postSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+	const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+	if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
 	const session = await requireSession();
 	if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
 

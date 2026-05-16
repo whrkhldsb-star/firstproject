@@ -9,6 +9,7 @@ import { decryptSshPrivateKey } from "@/lib/ssh/ssh-key-crypto";
 import { listRemoteDirectory, type SftpListEntry } from "@/lib/ssh/client";
 import { normalizeRemotePath, toClientStorageError } from "@/lib/storage/remote-path";
 import { mimeTypeFromExt, guessMimeType } from "@/lib/image-bed/constants";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,8 @@ interface SyncResult {
 }
 
 export async function POST(request: Request) {
+  const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+  if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
   const session = await requireSession();
   if (!sessionHasPermission(session, "storage:write")) {
     return NextResponse.json({ error: "缺少权限" }, { status: 403 });

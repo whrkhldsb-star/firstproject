@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth/require-api-session";
 import { prisma } from "@/lib/db";
 import { randomUUID } from "crypto";
+import { withRateLimit, rateLimitResponse, UPLOAD_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -123,10 +124,14 @@ export async function GET(
 export async function POST(
  _request: Request,
  { params }: { params: Promise<{ id: string }> }
+
 ) {
+ const rl = withRateLimit(_request, UPLOAD_LIMIT);
+ if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
  const authed = await requireApiSession();
  if (authed instanceof NextResponse) return authed;
  const { id } = await params;
+	try {
 
  const server = await prisma.server.findUnique({
   where: { id },
@@ -272,6 +277,10 @@ with http.server.HTTPServer(("0.0.0.0", port), AuthHandler) as httpd:
    expiresAt,
   },
  });
+	} catch (error) {
+		const msg = error instanceof Error ? error.message : "操作失败";
+		return NextResponse.json({ error: msg }, { status: 500 });
+	}
 }
 
 // ── DELETE: 停止文件代理 ─────────────────────────────────
@@ -279,10 +288,14 @@ with http.server.HTTPServer(("0.0.0.0", port), AuthHandler) as httpd:
 export async function DELETE(
  _request: Request,
  { params }: { params: Promise<{ id: string }> }
+
 ) {
+ const rl = withRateLimit(_request, UPLOAD_LIMIT);
+ if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
  const authed = await requireApiSession();
  if (authed instanceof NextResponse) return authed;
  const { id } = await params;
+	try {
 
  const proxy = await prisma.serverFileProxy.findUnique({
   where: { serverId_proxyType: { serverId: id, proxyType: "python_http" } },
@@ -311,4 +324,8 @@ export async function DELETE(
  });
 
  return NextResponse.json({ status: "stopped" });
+	} catch (error) {
+		const msg = error instanceof Error ? error.message : "操作失败";
+		return NextResponse.json({ error: msg }, { status: 500 });
+	}
 }

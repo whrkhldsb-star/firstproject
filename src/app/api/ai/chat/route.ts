@@ -179,7 +179,7 @@ export async function POST(request: Request) {
  // ── AI 请求 + Tool Calling 循环 ──────────────────────────────
  // 最多 5 轮 tool calling 循环，防止无限循环
  const MAX_TOOL_ROUNDS = 5;
- let currentMessages = [...historyMessages];
+		const currentMessages = [...historyMessages];
  let finalContent = "";
  let finalReasoning = "";
  let totalInputTokens = 0;
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
      let fullReasoning = "";
      let inputTokens = 0;
      let outputTokens = 0;
-     let toolCalls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> = [];
+		const toolCalls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> = [];
 
      try {
       const reader = chatResult.response.body?.getReader();

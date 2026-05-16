@@ -59,6 +59,8 @@ export function useWsNotifications(): UseWsNotificationsReturn {
 	const wsRef = useRef<WebSocket | null>(null);
 	const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const heartbeatRef = useRef<ReturnType<typeof setInterval>>(undefined);
+	/** Stable ref to the latest `connect` function — avoids stale closure in onclose */
+	const connectRef = useRef<() => void>(() => {});
 	const [connected, setConnected] = useState(false);
 	const [lastNotification, setLastNotification] = useState<WsNotification | null>(null);
 	const [unreadCount, setUnreadCount] = useState(0);
@@ -129,18 +131,23 @@ export function useWsNotifications(): UseWsNotificationsReturn {
 					clearInterval(heartbeatRef.current);
 					heartbeatRef.current = undefined;
 				}
-				// Auto-reconnect after 3 seconds
-				reconnectTimer.current = setTimeout(connect, 3000);
+				// Auto-reconnect after 3 seconds via stable ref (avoids stale closure)
+				reconnectTimer.current = setTimeout(() => connectRef.current(), 3000);
 			};
 
 			ws.onerror = () => {
 				ws.close();
 			};
 		} catch {
-			// Fallback: will retry
-			reconnectTimer.current = setTimeout(connect, 5000);
+			// Fallback: will retry via stable ref
+			reconnectTimer.current = setTimeout(() => connectRef.current(), 5000);
 		}
 	}, []);
+
+	// Keep the ref updated whenever connect changes
+	useEffect(() => {
+		connectRef.current = connect;
+	});
 
 	useEffect(() => {
 		connect();

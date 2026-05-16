@@ -11,6 +11,7 @@ import {
  listProviders,
  serializeProvider,
 } from "@/lib/ai/service";
+import { withRateLimit, rateLimitResponse, GENERAL_WRITE_LIMIT } from "@/lib/http/rate-limit-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+ const rl = withRateLimit(request, GENERAL_WRITE_LIMIT);
+ if (!rl.allowed) return rateLimitResponse(rl.retryAfterMs);
  try {
  const authed = await requireApiPermission("ai:manage");
 	if (authed instanceof NextResponse) return authed;
