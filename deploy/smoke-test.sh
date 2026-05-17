@@ -10,8 +10,14 @@ APP_SLUG="${2:-whrkhldsb}"
 [ -z "${TARGET}" ] && TARGET="$(ip -4 addr show scope global 2>/dev/null | grep -oP 'inet \K[0-9.]+' | head -1)" || true
 [ -z "${TARGET}" ] && TARGET="localhost"
 
-# Allow APP_DIR override via env (defaults to /opt/${APP_SLUG} for standard installs)
-SMOKE_APP_DIR="${APP_DIR:-/opt/${APP_SLUG}}"
+# Allow APP_DIR override via env (defaults to /opt/${APP_SLUG} for standard installs,
+# but auto-detects from systemd service if available)
+if [ -z "${APP_DIR:-}" ]; then
+	SMOKE_APP_DIR="$(systemctl show "${APP_SLUG}-next.service" -p WorkingDirectory --value 2>/dev/null || true)"
+	: "${SMOKE_APP_DIR:=/opt/${APP_SLUG}}"
+else
+	SMOKE_APP_DIR="${APP_DIR}"
+fi
 
 PASS=0
 FAIL=0

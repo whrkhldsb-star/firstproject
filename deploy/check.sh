@@ -42,8 +42,8 @@ set -a
 source "${ENV_FILE}"
 set +a
 
-for required in DATABASE_URL AUTH_SESSION_SECRET ADMIN_INITIAL_PASSWORD; do
-  [ -n "${!required:-}" ] || fail "${required} is missing"
+for required in DATABASE_URL AUTH_SESSION_SECRET ADMIN_INITIAL_PASSWORD SSH_WS_SECRET ENCRYPTION_KEY; do
+	[ -n "${!required:-}" ] || fail "${required} is missing"
 done
 [ "${#AUTH_SESSION_SECRET}" -ge 32 ] || fail "AUTH_SESSION_SECRET is shorter than 32 characters"
 reject_unsafe_production_flags
