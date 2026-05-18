@@ -78,3 +78,6 @@ make_*.py
 *.sql.gz
 *.tar.gz
 *.zip
+
+# Hermes agent local files (scripts, plans, etc.)
+.hermes/
